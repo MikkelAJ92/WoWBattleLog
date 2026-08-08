@@ -68,9 +68,9 @@ def test_profile_update_is_merge_not_replace(tmp_path, lens_result):
     p = tmp_path / "profile.json"
     profile_mod.update_profile(p, lens_result, "Frost Mage")
     # simulér profil-berigelse (binds) og ny analyse på anden spec
-    prof = json.loads(p.read_text())
+    prof = json.loads(p.read_text(encoding="utf-8"))
     prof["player"]["keybinds"] = {"spender": {"key": "Shift-3"}}
-    p.write_text(json.dumps(prof))
+    p.write_text(json.dumps(prof), encoding="utf-8")
     prof2 = profile_mod.update_profile(p, lens_result, "Blood DK")
     assert prof2["player"]["keybinds"]["spender"]["key"] == "Shift-3"
     assert prof2["player"]["specs_seen"] == ["Frost Mage", "Blood DK"]
@@ -112,12 +112,12 @@ def test_snapshot_and_report_same_dungeon(tmp_path, lens_result):
 def test_goals_evaluated(tmp_path, lens_result):
     b = tmp_path / "baseline.json"
     baseline_mod.snapshot(b, lens_result)
-    data = json.loads(b.read_text())
+    data = json.loads(b.read_text(encoding="utf-8"))
     data["goals"] = [{"metric": "blind_spender_rate_st", "op": "<",
                       "target": 0.10, "note": None},
                      {"metric": "deaths", "op": "<=", "target": 1,
                       "note": None}]
-    b.write_text(json.dumps(data))
+    b.write_text(json.dumps(data), encoding="utf-8")
     rep = baseline_mod.report(b)
     goals = {g["metric"]: g for g in rep["goals"]}
     assert goals["blind_spender_rate_st"]["met"] is False  # 0.6 er ikke < 0.10
@@ -145,7 +145,7 @@ def test_extract_metrics_deaths(lens_result):
 def test_cli_set_goal_and_report(tmp_path, lens_result, capsys):
     b = tmp_path / "baseline.json"
     out = tmp_path / "lens.json"
-    out.write_text(json.dumps(lens_result))
+    out.write_text(json.dumps(lens_result), encoding="utf-8")
     assert baseline_mod.main(["snapshot", str(b), "--lens-output",
                               str(out)]) == 0
     assert baseline_mod.main(["set-goal", str(b), "--metric",

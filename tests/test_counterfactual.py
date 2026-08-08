@@ -153,7 +153,7 @@ def test_cli(tmp_path, capsys):
     log = make_fixture.write(tmp_path / "WoWCombatLog-fixture.txt")
     parse.parse_file(log, tmp_path / "cache")
     cfg = tmp_path / "spec.json"
-    cfg.write_text(json.dumps({"spenders": {"116": {"target_debuff": [228358]}}}))
+    cfg.write_text(json.dumps({"spenders": {"116": {"target_debuff": [228358]}}}), encoding="utf-8")
     rc = cf.main([str(tmp_path / "cache"), "WoWCombatLog-fixture",
                   "--run", "1", "--spec-config", str(cfg)])
     assert rc == 0
@@ -173,3 +173,60 @@ def test_no_errors_returns_unavailable_with_run_info():
     out = cf.model_run(rd, lenses.SpecConfig(None))
     assert out["unavailable"]
     assert out["run"]["id"] == 7
+
+
+# --- cast-ID != skade-ID -----------------------------------------------------
+# I 12.0.7 castes Ice Lance som 30455, men skaden lander som 228598 og den
+# forbrugte Freezing udbetales som Shatter (1246949). Matcher modellen på
+# cast-ID'et, finder den nul hits og rapporterer 0 i gevinst — i stilhed.
+
+LANCE_DMG, SHATTER = 228598, 1246949
+
+
+def _split_id_scenario(damage_ids):
+    rows = [
+        _row(10.0, "SPELL_AURA_APPLIED", sp=CHILL, spn="Winter's Chill",
+             ex={"auraType": "DEBUFF"}),
+        _row(25.0, "SPELL_AURA_REMOVED", sp=CHILL, spn="Winter's Chill",
+             ex={"auraType": "DEBUFF"}),
+    ]
+    # 6 rene casts (under debuff) og 6 blinde (efter). Rene giver lance +
+    # shatter; blinde giver kun lance.
+    for t in [11 + i * 2 for i in range(6)] + [30 + i * 2 for i in range(6)]:
+        clean = 10 <= t < 25
+        rows.append(_row(t, "SPELL_CAST_SUCCESS", sp=LANCE, spn="Ice Lance",
+                         x=100, y=0))
+        rows.append(_row(t + 0.2, "SPELL_DAMAGE", sp=LANCE_DMG,
+                         spn="Ice Lance", amt=6000))
+        if clean:
+            rows.append(_row(t + 0.3, "SPELL_DAMAGE", sp=SHATTER,
+                             spn="Shatter", amt=9000))
+    run = {"pulls": [{"id": 1, "t0": 0.0, "t1": 60.0, "duration_s": 60.0}],
+           "bosses": [], "deaths": [], "id": 1, "type": "mplus"}
+    rd = lenses.RunData(run, rows, "P1", {"P1"}, {})
+    spender = {"target_debuff": [CHILL]}
+    if damage_ids:
+        spender["damage_ids"] = damage_ids
+    spec = lenses.SpecConfig({"spenders": {str(LANCE): spender}})
+    return cf.model_run(rd, spec)
+
+
+def test_damage_ids_enable_measured_contrast():
+    model = _split_id_scenario([LANCE_DMG, SHATTER])
+    blind = next(c for c in model["components"] if c["id"] == "blind_spenders")
+    assert blind["count"] == 6
+    # pr. CAST: rene 6000+9000=15000, blinde 6000 → kontrast 9000
+    lo, mid, hi = blind["gain_dmg"]
+    assert mid == pytest.approx(6 * 9000)
+    assert lo == pytest.approx(6 * 4500) and hi == pytest.approx(6 * 13500)
+    assert any("målt kontrast" in a for a in blind["assumptions"])
+
+
+def test_missing_damage_ids_is_not_silently_zero():
+    """Uden damage_ids findes ingen hits. Modellen må ikke lade som om
+    prisen er nul — den skal falde tilbage og sige det i sine antagelser."""
+    model = _split_id_scenario(None)
+    blind = next(c for c in model["components"] if c["id"] == "blind_spenders")
+    assert blind["count"] == 6
+    assert blind["gain_dmg"][1] == 0
+    assert any("for få samples" in a for a in blind["assumptions"])

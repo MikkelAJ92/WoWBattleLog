@@ -152,7 +152,15 @@ def lint(html_text: str) -> dict:
             "sources": sorted(set(sources)), "verified": p.verified}
 
 
+def utf8_stdio() -> None:
+    """Windows-stdio defaulter til cp1252; lint-output indeholder danske tegn."""
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8")
+
+
 def main(argv=None) -> int:
+    utf8_stdio()
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("guide", help="HTML-fil at linte")
     ap.add_argument("--json", action="store_true", help="JSON-output")

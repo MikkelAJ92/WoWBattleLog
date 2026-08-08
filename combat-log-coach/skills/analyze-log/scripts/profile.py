@@ -166,7 +166,7 @@ def extract_measurements(lens_result: dict, source_spec: str | None,
 
 def load_profile(path: Path) -> dict:
     if path.exists():
-        return json.loads(path.read_text())
+        return json.loads(path.read_text(encoding="utf-8"))
     return {"schema_version": SCHEMA_VERSION, "player": {"name": None},
             "measurements": {}}
 
@@ -186,11 +186,20 @@ def update_profile(path: Path, lens_result: dict, source_spec: str | None,
             seen.append(source_spec)
     new = extract_measurements(lens_result, source_spec, measured_at)
     profile["measurements"].update(new)   # nyeste måling vinder pr. kategori
-    path.write_text(json.dumps(profile, ensure_ascii=False, indent=1))
+    path.write_text(json.dumps(profile, ensure_ascii=False, indent=1),
+                    encoding="utf-8")
     return profile
 
 
+def utf8_stdio() -> None:
+    """Windows-stdio defaulter til cp1252; JSON-output og danske tekster er UTF-8."""
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8")
+
+
 def main(argv=None) -> int:
+    utf8_stdio()
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
     up = sub.add_parser("update", help="Opdatér profil fra linse-output")
@@ -203,13 +212,13 @@ def main(argv=None) -> int:
     args = ap.parse_args(argv)
 
     if args.cmd == "update":
-        lens_result = json.loads(Path(args.lens_output).read_text())
+        lens_result = json.loads(Path(args.lens_output).read_text(encoding="utf-8"))
         profile = update_profile(Path(args.profile), lens_result,
                                  args.spec, args.measured_at)
         json.dump(profile, sys.stdout, ensure_ascii=False, indent=1)
         print()
     else:
-        print(Path(args.profile).read_text())
+        print(Path(args.profile).read_text(encoding="utf-8"))
     return 0
 
 

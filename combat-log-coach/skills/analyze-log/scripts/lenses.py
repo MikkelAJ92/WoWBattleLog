@@ -17,7 +17,8 @@ Linser:
 Spec-config (valgfri JSON, --spec-config) låser spec-afhængige analyser op:
   {
     "spec": "Frost Mage",
-    "spenders": {"116": {"target_debuff": [228358], "self_buff": [44544]}},
+    "spenders": {"116": {"target_debuff": [228358], "min_stacks": 6,
+                         "self_buff": [44544]}},
     "procs": [44544],
     "defensives": {"45438": {"name": "Ice Block", "cd_s": 240}},
     "major_cds": {"12472": {"name": "Icy Veins"}}
@@ -59,7 +60,7 @@ _METRICS_PATH = Path(__file__).resolve().parents[3] / "metrics.json"
 
 def _load_catalog() -> dict:
     try:
-        data = json.loads(_METRICS_PATH.read_text())
+        data = json.loads(_METRICS_PATH.read_text(encoding="utf-8"))
         return {m["id"]: m for m in data["metrics"]}
     except (OSError, json.JSONDecodeError, KeyError):
         return {}
@@ -419,8 +420,8 @@ def _near_cast(t: float, cast_times: list[float], eps: float = 0.3) -> bool:
 def _blind_spenders(rd: RunData, spec: SpecConfig) -> dict:
     """Spender-casts uden krævet debuff/proc-state. Returnerer også
     event-listen (_events) til kontekst-linse og dashboard-prikker."""
-    # aura-state pr. mål (egne debuffs) og self-buffs
-    target_debuffs: dict[str, set[int]] = {}
+    # aura-state pr. mål (egne debuffs, med stak-antal) og self-buffs
+    target_debuffs: dict[str, dict[int, int]] = {}
     self_buffs: set[int] = set()
     events = []
     blind = st_casts = aoe_casts = st_blind = aoe_blind = 0
@@ -431,12 +432,18 @@ def _blind_spenders(rd: RunData, spec: SpecConfig) -> dict:
         if ev.startswith("SPELL_AURA_"):
             at = (r[EX] or {}).get("auraType")
             if r[SG] in rd.self_units and at == "DEBUFF":
-                s = target_debuffs.setdefault(r[DG], set())
-                if ev in ("SPELL_AURA_APPLIED", "SPELL_AURA_REFRESH",
-                          "SPELL_AURA_APPLIED_DOSE"):
-                    s.add(r[SP])
+                s = target_debuffs.setdefault(r[DG], {})
+                # DOSE-events bærer det aktuelle stak-antal; APPLIED/REFRESH
+                # uden stak-felt betyder 1 stak (hhv. uændret stak).
+                n = (r[EX] or {}).get("stacks")
+                if ev == "SPELL_AURA_APPLIED":
+                    s[r[SP]] = n or 1
+                elif ev in ("SPELL_AURA_APPLIED_DOSE", "SPELL_AURA_REMOVED_DOSE"):
+                    s[r[SP]] = n if n is not None else s.get(r[SP], 1)
+                elif ev == "SPELL_AURA_REFRESH":
+                    s.setdefault(r[SP], n or 1)
                 elif ev == "SPELL_AURA_REMOVED":
-                    s.discard(r[SP])
+                    s.pop(r[SP], None)
             if r[DG] == rd.self_guid and at == "BUFF":
                 if ev in ("SPELL_AURA_APPLIED", "SPELL_AURA_REFRESH",
                           "SPELL_AURA_APPLIED_DOSE"):
@@ -450,8 +457,11 @@ def _blind_spenders(rd: RunData, spec: SpecConfig) -> dict:
             req = spec.spenders[r[SP]]
             ok = False
             if req.get("target_debuff"):
-                ok |= bool(set(req["target_debuff"])
-                           & target_debuffs.get(r[DG], set()))
+                # min_stacks: nogle specs kræver et stak-antal, ikke blot at
+                # debuffen er til stede (fx Spellslingers Freezing-tærskel).
+                need = req.get("min_stacks", 1)
+                have = target_debuffs.get(r[DG], {})
+                ok |= any(have.get(d, 0) >= need for d in req["target_debuff"])
             if req.get("self_buff"):
                 ok |= bool(set(req["self_buff"]) & self_buffs)
             n_targets = len(rd.targets_hit(r[T] - WINDOW_S / 2,
@@ -725,6 +735,7 @@ def run_lenses(cache_root: Path, log_stem: str, lenses=None, run_ids=None,
 
 
 def main(argv=None) -> int:
+    parse_mod.utf8_stdio()
     ap = argparse.ArgumentParser(description="F3-linser over parsed cache")
     ap.add_argument("cache_root", help="Cache-rod (fx .clc-cache)")
     ap.add_argument("log_stem", help="Logstem (mappenavn i cachen)")
@@ -737,7 +748,7 @@ def main(argv=None) -> int:
 
     cfg = None
     if args.spec_config:
-        cfg = json.loads(Path(args.spec_config).read_text())
+        cfg = json.loads(Path(args.spec_config).read_text(encoding="utf-8"))
     result = run_lenses(Path(args.cache_root), args.log_stem,
                         lenses=args.lens, run_ids=args.run, spec_config=cfg)
     json.dump(result, sys.stdout, ensure_ascii=False, indent=1)

@@ -66,13 +66,19 @@ def _blind_component(rd: lenses.RunData, spec: lenses.SpecConfig,
     total = [0.0, 0.0, 0.0]
     assumptions = []
     for sp_id, evs in blind_by_spell.items():
-        # kobl spender-casts til hits: damage-række med samme spell+mål
-        # inden for LINK_WINDOW_S efter castet
+        # Cast-ID og skade-ID er sjældent det samme spell (Ice Lance castes
+        # som 30455, men rammer som 228598 og udløser Shatter 1246949).
+        # spec-config kan derfor angive damage_ids; ellers antages cast-ID'et.
+        req = spec.spenders.get(sp_id, {})
+        dmg_ids = set(req.get("damage_ids") or [sp_id])
         cast_times = sorted((c[T], c[DG]) for c in rd.casts if c[SP] == sp_id)
         blind_keys = {(e["t"]) for e in evs}
-        blind_hits, clean_hits = [], []
+        # Summér pr. cast: ét cast kan give flere skade-events (selve hittet
+        # plus Shatter). Prisen er kontrasten pr. CAST, ikke pr. event —
+        # ellers udvander de små hits gennemsnittet.
+        per_cast: dict[float, float] = {}
         for r in rd.dmg_out:
-            if r[SP] != sp_id or r[AMT] is None:
+            if r[SP] not in dmg_ids or r[AMT] is None:
                 continue
             src_cast = None
             for ct, cdg in reversed(cast_times):
@@ -83,7 +89,9 @@ def _blind_component(rd: lenses.RunData, spec: lenses.SpecConfig,
                     break
             if src_cast is None:
                 continue
-            (blind_hits if src_cast in blind_keys else clean_hits).append(r[AMT])
+            per_cast[src_cast] = per_cast.get(src_cast, 0.0) + r[AMT]
+        blind_hits = [v for ct, v in per_cast.items() if ct in blind_keys]
+        clean_hits = [v for ct, v in per_cast.items() if ct not in blind_keys]
         name = evs[0].get("spell") or str(sp_id)
         if len(blind_hits) >= MIN_SAMPLES and len(clean_hits) >= MIN_SAMPLES:
             price = max(0.0, sum(clean_hits) / len(clean_hits)
@@ -91,7 +99,7 @@ def _blind_component(rd: lenses.RunData, spec: lenses.SpecConfig,
             lo, mid, hi = (price * BLIND_SPREAD[0], price,
                            price * BLIND_SPREAD[2])
             assumptions.append(
-                f"{name}: pris = målt kontrast ({len(clean_hits)} hits med "
+                f"{name}: pris = målt kontrast ({len(clean_hits)} casts med "
                 f"state vs. {len(blind_hits)} uden), interval ×0,5–×1,5")
         else:
             mean_hit = (sum(blind_hits + clean_hits)
@@ -274,13 +282,14 @@ def run_model(cache_root: Path, log_stem: str, run_ids=None,
 
 
 def main(argv=None) -> int:
+    parse_mod.utf8_stdio()
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("cache_root")
     ap.add_argument("log_stem")
     ap.add_argument("--run", action="append", type=int)
     ap.add_argument("--spec-config")
     args = ap.parse_args(argv)
-    cfg = json.loads(Path(args.spec_config).read_text()) \
+    cfg = json.loads(Path(args.spec_config).read_text(encoding="utf-8")) \
         if args.spec_config else None
     result = run_model(Path(args.cache_root), args.log_stem,
                        run_ids=args.run, spec_config=cfg)
