@@ -138,3 +138,79 @@ def test_check_mode_fresh_log(tmp_path):
     make_fixture.write(tmp_path / "WoWCombatLog-fixture.txt")
     code, msg = parse.check_logs_dir(tmp_path)
     assert code == 0
+
+
+# --- Versionsdrift: samme indhold, to wire-geometrier ------------------------
+# v22 (build 12.0.x) udvidede advanced-blokken 17 → 19 felter og gav spell-
+# skade en afsluttende ST-markør, som SWING_DAMAGE ikke har. Parseren skal
+# kalibrere sig ud af forskellen, ikke antage en fast længde.
+
+def _parse_wire(tmp_path, wire):
+    log = make_fixture.write(tmp_path / f"WoWCombatLog-{wire}.txt", wire=wire)
+    return parse.parse_file(log, tmp_path / f"cache-{wire}")
+
+
+def test_adv_block_length_is_calibrated_per_log(tmp_path):
+    for wire, expected in (("v21", 17), ("v22", 19)):
+        log = make_fixture.write(tmp_path / f"cal-{wire}.txt", wire=wire)
+        assert parse._calibrate_adv_len(log) == (expected, "log")
+
+
+def test_wire_geometries_parse_identically(tmp_path):
+    a = _parse_wire(tmp_path, "v21")
+    b = _parse_wire(tmp_path, "v22")
+    assert a["source"]["adv_block_len"] == 17
+    assert b["source"]["adv_block_len"] == 19
+    # Skadetotaler, pulls, bosser og døde skal være bit-identiske.
+    assert a["runs"] == b["runs"]
+    assert a["counts"]["by_event"] == b["counts"]["by_event"]
+    assert a["player"] == b["player"]
+
+
+def test_v22_reads_hp_and_swing_amount(tmp_path):
+    """hp/hpmax ligger i blokkens start, swing-amount efter blokkens slut —
+    begge blev læst forkert da blokken voksede."""
+    summary = _parse_wire(tmp_path, "v22")
+    run = summary["runs"][0]
+    cache = Path(summary["cache_dir"]).parent
+    rows = list(parse.iter_run_events(cache, "WoWCombatLog-v22", run["id"]))
+    hit = next(r for r in rows if r[1] == "SPELL_DAMAGE" and r[4] == MAGE_GUID)
+    assert hit[12]["hpmax"] == 2_800_000
+    swing = next(r for r in rows if r[1] == "SWING_DAMAGE")
+    assert swing[8] == 2000            # ulvens bid, ikke et felt fra blokken
+
+
+def test_multi_resource_power_fields(tmp_path):
+    """Units med flere ressourcer logger dem pipe-separeret (paladin:
+    powerType='9|0'). Primærressourcen læses; ingen parse-warning."""
+    log = tmp_path / "WoWCombatLog-power.txt"
+    body = make_fixture.build()
+    piped = body.replace(",0,250000,250000,0,", ",9|0,5|250000,5|250000,0,")
+    assert piped != body, "fixturen skal indeholde ressourcefelter at pipe'e"
+    log.write_text(piped, encoding="utf-8")
+    summary = parse.parse_file(log, tmp_path / "cache")
+    assert not any(k.startswith(("cast:p", "energize:p"))
+                   for k in summary["counts"]["parse_warnings"])
+    # primærressourcen (før '|') skal nå frem til slim-strømmen
+    rows = list(parse.iter_run_events(tmp_path / "cache",
+                                      "WoWCombatLog-power", 1))
+    cast = next(r for r in rows if r[1] == "SPELL_CAST_SUCCESS"
+                and r[2] == MAGE_GUID and r[12].get("pt") is not None)
+    assert cast[12]["pt"] == 9 and cast[12]["pc"] == 5
+
+
+def test_melee_counted_once_and_carries_victim_hp(summary):
+    """Nærkamp logges fra begge sider. Skaden må tælles én gang, og HP i
+    death recap skal komme fra offerets side (SWING_DAMAGE_LANDED)."""
+    trash = summary["runs"][0]["pulls"][0]
+    assert trash["damage_by_player"][HUNTER_GUID] == 60_000   # 30k egen + 30k pet
+    assert trash["damage_total"] == 240_000
+
+    cache = Path(summary["cache_dir"]).parent
+    rows = list(parse.iter_run_events(cache, "WoWCombatLog-fixture", 1))
+    taken = [r for r in rows if r[4] == MAGE_GUID
+             and r[1] in ("SWING_DAMAGE", "SWING_DAMAGE_LANDED")]
+    assert taken, "nærkamp mod spilleren skal nå slim-strømmen"
+    assert {r[1] for r in taken} == {"SWING_DAMAGE_LANDED"}
+    assert sum(r[8] for r in taken) == 10 * 40_000            # ingen dobbelttælling
+    assert all(r[12]["hpmax"] == 2_800_000 for r in taken)    # offerets HP, ikke bossens

@@ -161,9 +161,14 @@ def test_death_recap(result):
     recaps = sur["death_recaps"]["value"]
     assert len(recaps) == 1
     r = recaps[0]
-    assert r["last6s_total"] == 520_000  # to hits à 260k i vinduet
+    # to spell-hits à 260k + to nærkampsslag à 40k i 6 s-vinduet
+    assert r["last6s_total"] == 600_000
     assert "Alerting Shrill (Avanoxx)" in r["last6s_sources"]
-    assert len(r["hp_curve"]) == 2
+    assert r["last6s_sources"]["Melee (Avanoxx)"] == 80_000
+    # alle fire hits bidrager til kurven — også nærkampen, hvis HP kommer
+    # fra offerets side af logget
+    assert len(r["hp_curve"]) == 4
+    assert all(p["hpmax"] == 2_800_000 for p in r["hp_curve"])
     assert r["defensive_availability"]["Ice Block"]["ready_at_death"] is True
 
 
@@ -203,8 +208,29 @@ def test_lens_cli(tmp_path):
     parse.parse_file(log, tmp_path / "cache")
     import json
     cfg = tmp_path / "spec.json"
-    cfg.write_text(json.dumps(SPEC))
+    cfg.write_text(json.dumps(SPEC), encoding="utf-8")
     rc = lenses.main([str(tmp_path / "cache"), "WoWCombatLog-fixture",
                       "--lens", "sustain", "--run", "1",
                       "--spec-config", str(cfg)])
     assert rc == 0
+
+
+def test_blind_spender_stack_threshold(tmp_path):
+    """Nogle specs kræver et antal stakke, ikke blot at debuffen er på
+    (Spellslinger: Ice Lance ved >= 6 Freezing-stakke). Fixturens rampe går
+    2 -> 8, så tærsklen skal flytte grænsen monotont."""
+    log = make_fixture.write(tmp_path / "WoWCombatLog-fixture.txt")
+    parse.parse_file(log, tmp_path / "cache")
+
+    def blind(need):
+        spec = {"spec": "t",
+                "spenders": {"116": {"target_debuff": [228358],
+                                     "min_stacks": need}}}
+        res = lenses.run_lenses(tmp_path / "cache", "WoWCombatLog-fixture",
+                                spec_config=spec, run_ids=[1])
+        return res["runs"][0]["rotation"]["blind_spenders"]["value"]["blind"]
+
+    assert blind(1) == 42    # uændret: samme som uden tærskel (bagudkompatibel)
+    assert blind(4) == 45
+    assert blind(6) == 47
+    assert blind(9) == 70    # rampen topper på 8 → hver eneste cast er blind

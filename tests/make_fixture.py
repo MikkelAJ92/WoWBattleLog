@@ -32,14 +32,30 @@ def ts(h, m, s):
     return f"8/8/2026 {h:02d}:{m:02d}:{s:06.3f}-4"
 
 
+# --- Wire-geometri pr. log-version ------------------------------------------
+# Feltlayoutet driver mellem patches, og parseren skal følge med. v22 (build
+# 12.0.x) udvidede advanced-blokken fra 17 til 19 felter og gav spell-/range-
+# skade en afsluttende ST/AOE-markør, som SWING_DAMAGE ikke har (10 suffiks-
+# felter mod 11). Fixturen kan emitteres i begge geometrier, så testene kan
+# kræve identiske parse-resultater på tværs af dem.
+WIRE = {
+    "v21": {"log_version": 21, "adv_pad": [], "spell_tail": "nil",
+            "swing_tail": ["nil"]},
+    "v22": {"log_version": 22, "adv_pad": [111, 222], "spell_tail": "ST",
+            "swing_tail": []},
+}
+_wire = WIRE["v22"]
+
+
 def adv(info, owner, hp, hpmax, pt=0, pc=250000, pm=250000, x=0, y=0,
         map_id=2660, facing=1.23, lvl=80):
-    return [info, owner, hp, hpmax, 5000, 9000, 3000, 0, pt, pc, pm, 0,
-            x, y, map_id, facing, lvl]
+    return [info, owner, hp, hpmax, 5000, 9000, 3000, *_wire["adv_pad"], 0,
+            pt, pc, pm, 0, x, y, map_id, facing, lvl]
 
 
-def dmg_suffix(amount, overkill=-1, school=16, crit="nil"):
-    return [amount, amount, overkill, school, 0, 0, 0, crit, "nil", "nil", "nil"]
+def dmg_suffix(amount, overkill=-1, school=16, crit="nil", swing=False):
+    core = [amount, amount, overkill, school, 0, 0, 0, crit, "nil", "nil"]
+    return core + (_wire["swing_tail"] if swing else [_wire["spell_tail"]])
 
 
 def line(t, *fields):
@@ -56,11 +72,21 @@ def spell_damage(t, src, dst, spell, amount, dst_hp, dst_hpmax, x, y,
                 *dmg_suffix(amount, overkill=overkill, school=school))
 
 
-def swing_damage(t, src, dst, amount, dst_hp, dst_hpmax, x, y):
+def swing_damage(t, src, dst, amount, src_hp, src_hpmax, x, y, owner=NIL):
+    """Nærkamp fra ANGRIBERENS side — advanced-blokken beskriver angriberen."""
     return line(t, "SWING_DAMAGE", src[0], f'"{src[1]}"', src[2], "0x0",
                 dst[0], f'"{dst[1]}"', dst[2], "0x0",
+                *adv(src[0], owner, src_hp, src_hpmax, x=x, y=y),
+                *dmg_suffix(amount, school=1, swing=True))
+
+
+def swing_damage_landed(t, src, dst, amount, dst_hp, dst_hpmax, x, y):
+    """Samme slag fra OFFERETS side — blokken beskriver offeret (bærer dets HP).
+    Spillet logger begge; parseren skal tælle slaget præcis én gang."""
+    return line(t, "SWING_DAMAGE_LANDED", src[0], f'"{src[1]}"', src[2], "0x0",
+                dst[0], f'"{dst[1]}"', dst[2], "0x0",
                 *adv(dst[0], NIL, dst_hp, dst_hpmax, x=x, y=y),
-                *dmg_suffix(amount, school=1))
+                *dmg_suffix(amount, school=1, swing=True))
 
 
 def cast_success(t, src, dst, spell, x, y, pc=250000, pm=250000, pt=0,
@@ -85,9 +111,14 @@ def unit_died(t, unit):
                 unit[0], f'"{unit[1]}"', unit[2], "0x0", 0)
 
 
-def build() -> str:
+def build(wire: str = "v22") -> str:
     """Byg fixturen som (tid, linje)-par og sortér globalt — ægte combat
-    logs er kronologiske, og pull-segmenteringen afhænger af det."""
+    logs er kronologiske, og pull-segmenteringen afhænger af det.
+
+    ``wire`` vælger feltgeometri (se WIRE). Indholdet er identisk på tværs af
+    geometrier; kun kodningen på wire adskiller sig."""
+    global _wire
+    _wire = WIRE[wire]
     L: list[tuple[float, str]] = []
 
     def emit(sec: float, text: str) -> None:
@@ -96,7 +127,8 @@ def build() -> str:
     def tsec(h, m, s) -> float:
         return h * 3600 + m * 60 + s
 
-    emit(tsec(20, 0, 0), line(ts(20, 0, 0), "COMBAT_LOG_VERSION", 22,
+    emit(tsec(20, 0, 0), line(ts(20, 0, 0), "COMBAT_LOG_VERSION",
+                              _wire["log_version"],
                               "ADVANCED_LOG_ENABLED", 1, "BUILD_VERSION",
                               "11.2.0", "PROJECT_ID", 1))
     emit(tsec(20, 0, 1), line(ts(20, 0, 1), "ZONE_CHANGE", 2660,
@@ -119,6 +151,13 @@ def build() -> str:
                                           6000, mob_hp, 3_000_000, 3000, 4000))
     emit(tsec(20, 0, 11), aura(ts(20, 0, 11), MAGE, MOB,
                                (228358, '"Winter\'s Chill"', 16), "DEBUFF"))
+    # stak-rampe 2→8 (DOSE-events bærer det aktuelle stak-antal). Specs med
+    # stak-tærskel skal kunne skelne "debuffen er på" fra "nok stakke".
+    for n in range(2, 9):
+        emit(tsec(20, 0, 10 + n), aura(ts(20, 0, 10 + n), MAGE, MOB,
+                                       (228358, '"Winter\'s Chill"', 16),
+                                       f"DEBUFF,{n}",
+                                       event="SPELL_AURA_APPLIED_DOSE"))
     emit(tsec(20, 0, 12), aura(ts(20, 0, 12), MAGE, MAGE,
                                (44544, '"Fingers of Frost"', 16), "BUFF"))
     emit(tsec(20, 0, 13), line(ts(20, 0, 13), "SPELL_ENERGIZE", MAGE[0],
@@ -134,11 +173,16 @@ def build() -> str:
         emit(tsec(20, 0, t), spell_damage(ts(20, 0, t), HUNTER, MOB,
                                           ARCANE_SHOT, 3000, mob_hp,
                                           3_000_000, 3010, 4010))
+    # ulven slår mobben — spillet logger slaget fra BEGGE sider; skaden må
+    # kun tælle én gang (15 x 2000 = 30000, jf. de kendte totaler)
     for i in range(15):
         t = 11 + i * 1.8
         mob_hp -= 2000
         emit(tsec(20, 0, t), swing_damage(ts(20, 0, t), WOLF, MOB, 2000,
-                                          mob_hp, 3_000_000, 3005, 4005))
+                                          900_000, 900_000, 3005, 4005,
+                                          owner=HUNTER[0]))
+        emit(tsec(20, 0, t), swing_damage_landed(ts(20, 0, t), WOLF, MOB, 2000,
+                                                 mob_hp, 3_000_000, 3005, 4005))
     emit(tsec(20, 0, 39), unit_died(ts(20, 0, 39), MOB))
 
     # --- støj mellem pulls ---------------------------------------------------
@@ -178,6 +222,13 @@ def build() -> str:
         emit(tsec(20, 1, t), spell_damage(ts(20, 1, t), BOSS, MAGE, BOSS_HIT,
                                           260_000, max(player_hp, 0),
                                           2_800_000, 1105 + i, 2105))
+        # nærkamp oveni: kun LANDED bærer spillerens HP
+        emit(tsec(20, 1, t + 0.4),
+             swing_damage(ts(20, 1, t + 0.4), BOSS, MAGE, 40_000,
+                          25_000_000, 25_000_000, 1105 + i, 2105))
+        emit(tsec(20, 1, t + 0.4),
+             swing_damage_landed(ts(20, 1, t + 0.4), BOSS, MAGE, 40_000,
+                                 max(player_hp, 0), 2_800_000, 1105 + i, 2105))
     emit(tsec(20, 1, 49), unit_died(ts(20, 1, 49), MAGE))
     emit(tsec(20, 2, 1), line(ts(20, 2, 1), "ENCOUNTER_END", 2926,
                               '"Avanoxx"', 8, 5, 1, 59000))
@@ -203,9 +254,9 @@ def build() -> str:
     return "\n".join(text for _, text in L) + "\n"
 
 
-def write(path: Path) -> Path:
+def write(path: Path, wire: str = "v22") -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(build(), encoding="utf-8")
+    path.write_text(build(wire), encoding="utf-8")
     return path
 
 

@@ -4,10 +4,13 @@
 Design (jf. PRD afsnit F1 og NFR):
   * Streaming line-parse — hele filen holdes aldrig i hukommelsen; slim events
     skrives løbende til en gzip-cache pr. run.
-  * Versionsdrift-robust: felter mappes BAGFRA pr. event-type (feltantal
-    varierer mellem patches). Fx SPELL_DAMAGE: amount = felt[-11]; casts med
-    advanced block: x,y = felt[-5],[-4]. Fejlende konverteringer tælles som
-    parse_warnings; ukendte event-typer ignoreres med tælling — aldrig crash.
+  * Versionsdrift-robust: advanced-blokkens længde KALIBRERES pr. logfil ud
+    fra SPELL_CAST_SUCCESS (som intet suffiks har), og alle felter indekseres
+    fremad fra event-familiens præfikslængde. Blizzard har udvidet blokken
+    (v21: 17 felter → v22: 19) og suffikser varierer pr. event (SPELL_DAMAGE
+    har en afsluttende ST/AOE-markør som SWING_DAMAGE mangler). Fejlende
+    konverteringer tælles som parse_warnings; ukendte event-typer ignoreres
+    med tælling — aldrig crash.
   * Kun aggregater (summary JSON < 100 KB) er tænkt til modelkontekst; den
     fulde slim-eventstrøm ligger på disk til genkørbare linser (F3).
 
@@ -38,7 +41,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-PARSER_VERSION = "0.1.0"
+PARSER_VERSION = "0.2.0"
 
 # Pull-heuristik (PRD kernebegreber): sammenhængende spiller-skade med < 6 s
 # huller; en pull tæller kun hvis min. 150k skade ELLER 8 s varighed.
@@ -56,20 +59,31 @@ REACTION_HOSTILE = 0x40
 TYPE_PLAYER = 0x400
 TYPE_PET = 0x1000
 
-# --- Event-klassifikation -------------------------------------------------
-# Suffiks-længder (felter EFTER advanced-blokken) pr. event-familie.
-# Advanced-blokken er 17 felter: infoGUID, ownerGUID, curHP, maxHP, AP, SP,
-# armor, absorb, powerType, curPower, maxPower, powerCost, posX, posY,
-# uiMapID, facing, level.
-ADV_LEN = 17
-DMG_SUFFIX = 11   # amount, base, overkill, school, resist, block, absorb, crit, glance, crush, offhand
-HEAL_SUFFIX = 5   # amount, base, overheal, absorbed, crit
-ENERGIZE_SUFFIX = 4  # amount, over, powerType, maxPower
+# --- Feltgeometri ----------------------------------------------------------
+# Præfikslængde FØR advanced-blokken (inkl. event-navnet i f[0]):
+#   SPELL_*/RANGE_*: navn + 4 source + 4 dest + spellId/navn/skole = 12
+#   SWING_*:         navn + 4 source + 4 dest                      = 9
+BASE_SPELL = 12
+BASE_SWING = 9
+
+# Advanced-blokkens længde er patch-afhængig og kalibreres pr. logfil
+# (se _calibrate_adv_len). Log v21 havde 17 felter; v22 (build 12.0.x) har 19.
+# Blokken slutter altid på: ... posX, posY, uiMapID, facing, level.
+ADV_LEN_DEFAULT = 19
+ADV_LEN_MIN, ADV_LEN_MAX = 15, 40
+POS_BACK = 5      # posX ligger 5 felter før blokkens slutning
+POWER_BACK = 9    # powerType, curPower, maxPower ligger 9/8/7 felter før slut
 
 DAMAGE_EVENTS = {
     "SPELL_DAMAGE", "SPELL_PERIODIC_DAMAGE", "SPELL_BUILDING_DAMAGE",
-    "RANGE_DAMAGE", "SWING_DAMAGE", "DAMAGE_SHIELD", "DAMAGE_SPLIT",
+    "RANGE_DAMAGE", "SWING_DAMAGE", "SWING_DAMAGE_LANDED", "DAMAGE_SHIELD",
+    "DAMAGE_SPLIT",
 }
+# Nærkamp logges TO gange: SWING_DAMAGE fra angriberens side (advanced-blokken
+# beskriver angriberen) og SWING_DAMAGE_LANDED fra offerets side (blokken
+# beskriver offeret, dvs. den bærer offerets HP). Vi bruger præcis én pr.
+# retning — ellers dobbelttælles nærkampsskade.
+SWING_DEALT, SWING_TAKEN = "SWING_DAMAGE", "SWING_DAMAGE_LANDED"
 HEAL_EVENTS = {"SPELL_HEAL", "SPELL_PERIODIC_HEAL"}
 ENERGIZE_EVENTS = {"SPELL_ENERGIZE", "SPELL_PERIODIC_ENERGIZE"}
 CAST_EVENTS = {"SPELL_CAST_START", "SPELL_CAST_SUCCESS", "SPELL_CAST_FAILED"}
@@ -114,6 +128,58 @@ def _num(fields: list[str], idx: int, warns: Warnings, key: str):
         except ValueError:
             warns.bump(f"{key}:value")
             return None
+
+
+def _calibrate_adv_len(log_path: Path, scan_lines: int = 20000) -> tuple[int, str]:
+    """Aflæs advanced-blokkens længde af logfilen selv.
+
+    SPELL_CAST_SUCCESS er ankeret: eventet har INTET suffiks efter
+    advanced-blokken, så blokkens længde er præcis ``len(felter) - BASE_SPELL``.
+    Derved følger parseren automatisk med når Blizzard tilføjer felter
+    (v21: 17 felter, v22: 19) i stedet for at antage en fast længde.
+
+    Returnerer (længde, kilde) — kilde er "log" ved kalibrering, ellers
+    "default"/"advanced_off".
+    """
+    counts: dict[int, int] = {}
+    advanced: bool | None = None
+    with open(log_path, "r", encoding="utf-8", errors="replace") as fh:
+        for i, line in enumerate(fh):
+            if i >= scan_lines:
+                break
+            if advanced is None and "COMBAT_LOG_VERSION" in line:
+                toks = line.split(",")
+                for j, tok in enumerate(toks):
+                    if tok == "ADVANCED_LOG_ENABLED" and j + 1 < len(toks):
+                        advanced = toks[j + 1].strip() == "1"
+            if "  SPELL_CAST_SUCCESS," not in line:
+                continue
+            try:
+                f = next(csv.reader(io.StringIO(line.split("  ", 1)[1])))
+            except (IndexError, csv.Error, StopIteration):
+                continue
+            counts[len(f) - BASE_SPELL] = counts.get(len(f) - BASE_SPELL, 0) + 1
+    if advanced is False:
+        return 0, "advanced_off"
+    if counts:
+        best = max(counts, key=lambda k: counts[k])
+        if ADV_LEN_MIN <= best <= ADV_LEN_MAX:
+            return best, "log"
+    return ADV_LEN_DEFAULT, "default"
+
+
+def _power(fields: list[str], idx: int, warns: Warnings, key: str):
+    """Ressourcefelt — units med flere ressourcer logger dem pipe-separeret.
+
+    Fx en paladin: powerType="9|0", currentPower="5|238816" (Holy Power +
+    mana). Primærressourcen står først; den er den interessante for rotation.
+    """
+    try:
+        v = fields[idx]
+    except IndexError:
+        warns.bump(f"{key}:index")
+        return None
+    return _num([v.split("|", 1)[0]], 0, warns, key)
 
 
 _FLAG_CACHE: dict[str, int] = {}
@@ -362,8 +428,9 @@ def parse_file(log_path: Path, cache_root: Path, player_name: str | None = None,
                 "mtime": int(stat.st_mtime), "parser_version": PARSER_VERSION}
     if not force and manifest_path.exists():
         try:
-            if json.loads(manifest_path.read_text()) == manifest:
-                summary = json.loads((cache_dir / "summary.json").read_text())
+            if json.loads(manifest_path.read_text(encoding="utf-8")) == manifest:
+                summary = json.loads(
+                    (cache_dir / "summary.json").read_text(encoding="utf-8"))
                 summary["cache_hit"] = True
                 return summary
         except (OSError, json.JSONDecodeError):
@@ -374,6 +441,7 @@ def parse_file(log_path: Path, cache_root: Path, player_name: str | None = None,
         old.unlink()
 
     t_wall = time.monotonic()
+    adv_len, adv_len_source = _calibrate_adv_len(log_path)
     warns = Warnings()
     tsp = TimestampParser(default_year=datetime.fromtimestamp(stat.st_mtime).year)
     seg = Segmenter(cache_dir)
@@ -454,19 +522,31 @@ def parse_file(log_path: Path, cache_root: Path, player_name: str | None = None,
                 spell_name = _unquote(f[10]) if len(f) > 11 else None
 
             if ev in DAMAGE_EVENTS:
-                amount = _num(f, -DMG_SUFFIX, warns, f"{ev}:amount")
-                overkill = _num(f, -DMG_SUFFIX + 2, warns, f"{ev}:overkill")
+                # Vælg den nærkamps-variant der hører til retningen, så samme
+                # slag ikke tælles to gange (se SWING_DEALT/SWING_TAKEN).
+                if ev in (SWING_DEALT, SWING_TAKEN):
+                    taken = dg.startswith("Player-")
+                    if ev != (SWING_TAKEN if taken else SWING_DEALT):
+                        continue
+                # Suffikset (amount, base, overkill, school, …) starter lige
+                # efter advanced-blokken; alt indekseres FREMAD fra præfikset,
+                # så hverken blokkens eller suffiksets længde antages.
+                # SWING_DAMAGE har fx 10 suffiksfelter mod SPELL_DAMAGE's 11
+                # (sidstnævnte har en afsluttende ST/AOE-markør).
+                base = BASE_SWING if ev.startswith("SWING_") else BASE_SPELL
+                adv = len(f) >= base + adv_len + 10 and adv_len > 0
+                sfx = base + adv_len if adv else base
+                amount = _num(f, sfx, warns, f"{ev}:amount")
+                overkill = _num(f, sfx + 2, warns, f"{ev}:overkill")
                 x = y = None
                 extra = None
-                adv = len(f) >= 9 + ADV_LEN + DMG_SUFFIX
                 if adv:
-                    x = _num(f, -(DMG_SUFFIX + 5), warns, f"{ev}:x")
-                    y = _num(f, -(DMG_SUFFIX + 4), warns, f"{ev}:y")
+                    x = _num(f, sfx - POS_BACK, warns, f"{ev}:x")
+                    y = _num(f, sfx - POS_BACK + 1, warns, f"{ev}:y")
                     if x is not None:
                         pos_count += 1
                     # ejer-mapping kun når advanced-blokken beskriver source
-                    info = f[-(DMG_SUFFIX + ADV_LEN)]
-                    owner = f[-(DMG_SUFFIX + ADV_LEN) + 1]
+                    info, owner = f[base], f[base + 1]
                     if (info == sg and owner.startswith("Player-")
                             and not src_is_player):
                         pets[sg] = owner
@@ -478,9 +558,13 @@ def parse_file(log_path: Path, cache_root: Path, player_name: str | None = None,
                         seg.on_damage(t, owner_guid, amount)
                     elif dg.startswith("Player-"):
                         seg.on_activity(t)
-                        if adv:
-                            hp = _num(f, -(DMG_SUFFIX + 15), warns, f"{ev}:hp")
-                            hpmax = _num(f, -(DMG_SUFFIX + 14), warns, f"{ev}:hpmax")
+                        # HP kun når advanced-blokken faktisk beskriver MÅLET;
+                        # ellers ville vi bogføre angriberens HP som offerets.
+                        if adv and f[base] == dg:
+                            # curHP/maxHP er blokkens felt 3 og 4 — ankret
+                            # FREMAD, så nye felter senere i blokken ikke rykker.
+                            hp = _num(f, base + 2, warns, f"{ev}:hp")
+                            hpmax = _num(f, base + 3, warns, f"{ev}:hpmax")
                             extra = {"hp": hp, "hpmax": hpmax}
                     else:
                         continue  # irrelevant skade (mob vs. mob m.m.)
@@ -494,16 +578,18 @@ def parse_file(log_path: Path, cache_root: Path, player_name: str | None = None,
                 seg.on_activity(t)
                 x = y = None
                 extra = None
-                if ev == "SPELL_CAST_SUCCESS" and len(f) >= 9 + 3 + ADV_LEN:
-                    x = _num(f, -5, warns, "cast:x")
-                    y = _num(f, -4, warns, "cast:y")
+                if ev == "SPELL_CAST_SUCCESS" and len(f) >= BASE_SPELL + adv_len \
+                        and adv_len > 0:
+                    end = BASE_SPELL + adv_len   # første felt EFTER blokken
+                    x = _num(f, end - POS_BACK, warns, "cast:x")
+                    y = _num(f, end - POS_BACK + 1, warns, "cast:y")
                     if x is not None:
                         pos_count += 1
-                    extra = {"pt": _num(f, -9, warns, "cast:pt"),
-                             "pc": _num(f, -8, warns, "cast:pc"),
-                             "pm": _num(f, -7, warns, "cast:pm")}
+                    extra = {"pt": _power(f, end - POWER_BACK, warns, "cast:pt"),
+                             "pc": _power(f, end - POWER_BACK + 1, warns, "cast:pc"),
+                             "pm": _power(f, end - POWER_BACK + 2, warns, "cast:pm")}
                     # advanced-blokken beskriver casteren → ejer-felt for pets
-                    owner = f[-(ADV_LEN - 1)]
+                    owner = f[BASE_SPELL + 1]
                     if src_is_pet and owner.startswith("Player-"):
                         pets[sg] = owner
                 elif ev == "SPELL_CAST_FAILED":
@@ -526,9 +612,11 @@ def parse_file(log_path: Path, cache_root: Path, player_name: str | None = None,
             if ev in ENERGIZE_EVENTS:
                 if not dg.startswith("Player-"):
                     continue
-                amount = _num(f, -ENERGIZE_SUFFIX, warns, "energize:amount")
-                extra = {"pt": _num(f, -2, warns, "energize:pt"),
-                         "pm": _num(f, -1, warns, "energize:pm")}
+                # suffiks: amount, over, powerType, maxPower
+                end = BASE_SPELL + adv_len
+                amount = _num(f, end, warns, "energize:amount")
+                extra = {"pt": _power(f, end + 2, warns, "energize:pt"),
+                         "pm": _power(f, end + 3, warns, "energize:pm")}
                 slim(t, ev, sg, sn, dg, dn, spell_id, spell_name, amount,
                      extra=extra)
                 continue
@@ -536,8 +624,10 @@ def parse_file(log_path: Path, cache_root: Path, player_name: str | None = None,
             if ev in HEAL_EVENTS:
                 if not dg.startswith("Player-"):
                     continue
-                amount = _num(f, -HEAL_SUFFIX, warns, "heal:amount")
-                overheal = _num(f, -3, warns, "heal:overheal")
+                # suffiks: amount, base, overheal, absorbed, critical
+                end = BASE_SPELL + adv_len
+                amount = _num(f, end, warns, "heal:amount")
+                overheal = _num(f, end + 2, warns, "heal:overheal")
                 slim(t, ev, sg, sn, dg, dn, spell_id, spell_name, amount,
                      extra={"overheal": overheal})
                 continue
@@ -586,7 +676,8 @@ def parse_file(log_path: Path, cache_root: Path, player_name: str | None = None,
     summary = {
         "parser_version": PARSER_VERSION,
         "source": {"file": log_path.name, "size_bytes": stat.st_size,
-                   "lines": total_lines, **log_meta},
+                   "lines": total_lines, **log_meta,
+                   "adv_block_len": adv_len, "adv_block_source": adv_len_source},
         "player": {
             "guid": self_guid,
             "name": players.get(self_guid),
@@ -607,15 +698,16 @@ def parse_file(log_path: Path, cache_root: Path, player_name: str | None = None,
         "cache_hit": False,
     }
     (cache_dir / "summary.json").write_text(
-        json.dumps(summary, ensure_ascii=False, indent=1))
-    manifest_path.write_text(json.dumps(manifest))
+        json.dumps(summary, ensure_ascii=False, indent=1), encoding="utf-8")
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
     return summary
 
 
 # --- API til linser (F3) ---------------------------------------------------
 
 def load_summary(cache_root: Path, log_stem: str) -> dict:
-    return json.loads((Path(cache_root) / log_stem / "summary.json").read_text())
+    return json.loads((Path(cache_root) / log_stem / "summary.json")
+                      .read_text(encoding="utf-8"))
 
 
 def iter_run_events(cache_root: Path, log_stem: str, run_id: int):
@@ -651,7 +743,15 @@ def check_logs_dir(logs_dir: Path, max_age_hours: float = 48.0) -> tuple[int, st
               f"{newest.stat().st_size / 1e6:.1f} MB)"
 
 
+def utf8_stdio() -> None:
+    """Windows-stdio defaulter til cp1252; JSON-output og danske tekster er UTF-8."""
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8")
+
+
 def main(argv: list[str] | None = None) -> int:
+    utf8_stdio()
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("path", help="Logfil eller Logs-mappe")
     ap.add_argument("--player", help="Karakternavn (ellers auto-detektion)")
