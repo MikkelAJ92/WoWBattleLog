@@ -1,0 +1,61 @@
+{
+ "spec": "Frost Mage (Spellslinger)",
+ "patch": "12.0.7",
+ "_provenance": {
+  "note": "Spell-ID'er er UDTRUKKET af rigtige 12.0.7-logs (målt), ikke slået op i ældre guides. Rotationstærskler er EKSTERNE påstande med kilde. Re-verificér ved patch-skifte.",
+  "spell_ids": "målt — egne casts/auraer i WoWCombatLog-080626_*.txt",
+  "thresholds": "eksternt — se _sources",
+  "retrieved": "2026-08-08",
+  "_sources": [
+   {
+    "url": "https://www.method.gg/guides/frost-mage/playstyle-and-rotation",
+    "supports": "Spellslinger: Ice Lance ved 6+ Freezing-stakke eller Fingers of Frost. Freezing bygges af Flurry, Frostbolt og Ray of Frost. Frozen Orb og Glacial Spike på cooldown; Blizzard i AoE; Ray of Frost lavest i prioritet."
+   },
+   {
+    "url": "https://www.icy-veins.com/wow/frost-mage-pve-dps-rotation-cooldowns-abilities",
+    "supports": "Spellslinger: Ice Lance ved 6+ Freezing-stakke eller Fingers of Frost (Frostfire: 10+). Fingers of Frost, Brain Freeze, Hand of Frost og Glacial Spike! er de rotationsbærende procs."
+   },
+   {
+    "url": "https://www.icy-veins.com/wow/frost-mage-pve-dps-spell-summary",
+    "supports": "Winter's Protection gør Ice Block til 3:00 cooldown ved max rank. Fingers of Frost stakker til 2 og lader Ice Lance shattre uden at forbruge Freezing."
+   },
+   {
+    "url": "https://www.wowhead.com/spell=11426/ice-barrier",
+    "supports": "Ice Barrier har ingen cooldown (n/a) — derfor cd_s 0."
+   }
+  ]
+ },
+
+ "spenders": {
+  "30455": {
+   "name": "Ice Lance",
+   "target_debuff": [1221389],
+   "min_stacks": 6,
+   "self_buff": [44544],
+   "damage_ids": [228598, 1246949],
+   "_damage_ids_why": "målt — Ice Lance castes som 30455, men skaden lander som 228598 og den forbrugte Freezing udbetales som Shatter (1246949). Begge hører til castet, og Shatter er præcis det man mister ved et blindt tryk.",
+   "_why": "Spellslinger-tærskel: 6+ Freezing-stakke ELLER Fingers of Frost. Freezing (1221389) afløser Winter's Chill (228358), som ikke findes i 12.0.7-logs."
+  }
+ },
+
+ "procs": [44544, 190446, 1222865],
+ "_procs_excluded": {
+  "1263263": "Hand of Frost — udeladt bevidst. Icy Veins beskriver den som et spell der automatisk flyver ud når du shattrer, og som selv påfører Freezing-stakke. Den forbruges altså ikke ved et tastetryk, så proc-linsens 'munch'/'consumed' er meningsløse for den (den målte ~70 % munch er et artefakt, ikke spildt spil)."
+ },
+
+ "defensives": {
+  "11426": {"name": "Ice Barrier", "cd_s": 0},
+  "414658": {"name": "Ice Cold", "cd_s": 180},
+  "342247": {"name": "Alter Time", "cd_s": 60},
+  "55342": {"name": "Mirror Image", "cd_s": 120},
+  "110959": {"name": "Greater Invisibility", "cd_s": 300}
+ },
+
+ "major_cds": {
+  "84714": {"name": "Frozen Orb"},
+  "199786": {"name": "Glacial Spike"},
+  "190356": {"name": "Blizzard"},
+  "205021": {"name": "Ray of Frost"},
+  "80353": {"name": "Time Warp"}
+ }
+}

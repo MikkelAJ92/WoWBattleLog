@@ -2,3 +2,4 @@ __pycache__/
 *.pyc
 .clc-cache/
 .pytest_cache/
+.clc-out/
