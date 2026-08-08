@@ -479,6 +479,8 @@ def _blind_spenders(rd: RunData, spec: SpecConfig) -> dict:
             "blind_spender_rate_st": round(st_blind / st_casts, 3) if st_casts else None,
             "blind_spender_rate_aoe": round(aoe_blind / aoe_casts, 3) if aoe_casts else None,
             "blind": blind, "total_spender_casts": total,
+            "st_casts": st_casts, "aoe_casts": aoe_casts,
+            "st_blind": st_blind, "aoe_blind": aoe_blind,
         }, "blind_spender_rate", sample={"spender_casts": total}),
         "_events": events,
     }
