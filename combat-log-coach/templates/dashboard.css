@@ -1,0 +1,157 @@
+/* Combat Log Coach — delt designsystem (F4).
+   Mørkt tema er default (PRD-krav); lyst tema via [data-theme="light"].
+   Kategorisk palette er CVD-sikker (Okabe–Ito, justeret til mørk baggrund).
+   Inlines i hvert dashboard — artifacts skal være selvstændige. */
+
+:root {
+  /* flader og tekst */
+  --clc-bg: #12141a;
+  --clc-surface: #1a1d26;
+  --clc-surface-2: #232734;
+  --clc-border: #333a4d;
+  --clc-text: #e8eaf0;
+  --clc-text-dim: #9aa3b5;
+
+  /* semantik */
+  --clc-actual: #56b4e9;      /* faktisk måling (areal/linje) */
+  --clc-potential: #009e73;   /* kontrafaktisk potentiale (bånd) */
+  --clc-error: #d55e00;       /* fejl-prikker/markører */
+  --clc-death: #cc79a7;       /* deaths */
+  --clc-movement: #f0e442;    /* bevægelses-heat */
+  --clc-cd: #0072b2;          /* cooldown-ticks */
+  --clc-boss-band: rgba(154, 163, 181, 0.14);
+
+  /* kategorisk serie-palette (CVD-sikker rækkefølge — brug i denne orden) */
+  --clc-c1: #56b4e9;
+  --clc-c2: #e69f00;
+  --clc-c3: #009e73;
+  --clc-c4: #cc79a7;
+  --clc-c5: #0072b2;
+  --clc-c6: #d55e00;
+  --clc-c7: #f0e442;
+
+  --clc-radius: 10px;
+  --clc-gap: 16px;
+  --clc-font: system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --clc-mono: ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+}
+
+[data-theme="light"] {
+  --clc-bg: #f5f6f8;
+  --clc-surface: #ffffff;
+  --clc-surface-2: #eef0f4;
+  --clc-border: #d4d9e3;
+  --clc-text: #1c2130;
+  --clc-text-dim: #5b6478;
+  --clc-boss-band: rgba(28, 33, 48, 0.08);
+}
+
+body {
+  background: var(--clc-bg);
+  color: var(--clc-text);
+  font-family: var(--clc-font);
+  margin: 0;
+  padding: 24px;
+  line-height: 1.5;
+}
+
+h1, h2, h3 { line-height: 1.2; margin: 0 0 .4em; }
+h1 { font-size: 1.6rem; }
+h2 { font-size: 1.25rem; }
+h3 { font-size: 1.05rem; color: var(--clc-text-dim); }
+small, .clc-dim { color: var(--clc-text-dim); }
+code, .clc-mono { font-family: var(--clc-mono); font-size: .92em; }
+
+/* --- Sektioner (inkrementel re-generering: én <section> pr. modul) ------- */
+section[data-clc-section] {
+  background: var(--clc-surface);
+  border: 1px solid var(--clc-border);
+  border-radius: var(--clc-radius);
+  padding: 20px;
+  margin: 0 0 var(--clc-gap);
+}
+section[data-clc-section] > header {
+  display: flex; flex-wrap: wrap; align-items: baseline;
+  justify-content: space-between; gap: 8px; margin-bottom: 12px;
+}
+
+/* --- KPI-række ------------------------------------------------------------ */
+.clc-kpis { display: flex; flex-wrap: wrap; gap: 12px; }
+.clc-kpi {
+  background: var(--clc-surface-2);
+  border: 1px solid var(--clc-border);
+  border-radius: var(--clc-radius);
+  padding: 10px 14px; min-width: 130px;
+}
+.clc-kpi b { display: block; font-size: 1.35rem; }
+.clc-kpi span { font-size: .8rem; color: var(--clc-text-dim); }
+
+/* --- Proveniens-badges: målt ≠ modelleret ≠ eksternt (hårdt krav) --------- */
+.clc-badge {
+  display: inline-block; font-size: .72rem; border-radius: 4px;
+  padding: 1px 7px; vertical-align: middle; margin-left: 6px;
+  border: 1px solid var(--clc-border); color: var(--clc-text-dim);
+}
+.clc-badge--measured { border-style: solid; }
+.clc-badge--modeled { border-style: dashed; }
+.clc-badge--modeled::before { content: "≈ "; }
+.clc-badge--external { border-style: dotted; }
+.clc-badge--external::before { content: "↗ "; }
+
+/* --- Grafer ---------------------------------------------------------------- */
+.clc-chart { overflow-x: auto; }             /* brede grafer scroller selv */
+.clc-chart svg { display: block; max-width: 100%; height: auto; }
+.clc-axis line, .clc-axis path { stroke: var(--clc-border); }
+.clc-axis text { fill: var(--clc-text-dim); font-size: 11px; }
+.clc-grid line { stroke: var(--clc-border); stroke-dasharray: 2 4; }
+
+.clc-legend {
+  display: flex; flex-wrap: wrap; gap: 6px 16px;
+  font-size: .8rem; color: var(--clc-text-dim); margin: 8px 0 0;
+}
+.clc-legend i {
+  display: inline-block; width: 12px; height: 12px; border-radius: 3px;
+  margin-right: 5px; vertical-align: -1px; font-style: normal;
+}
+
+/* modellerede kurver tegnes ALTID stiplede — visuel proveniens */
+.clc-modeled-stroke { stroke-dasharray: 6 4; }
+.clc-potential-band { fill: var(--clc-potential); opacity: .22; }
+.clc-actual-area { fill: var(--clc-actual); opacity: .35; }
+.clc-error-dot { fill: var(--clc-error); }
+.clc-death-marker { fill: var(--clc-death); }
+
+/* --- Pull-strips ------------------------------------------------------------ */
+.clc-strips { display: flex; flex-wrap: wrap; gap: 4px; align-items: flex-end; }
+.clc-strip {
+  background: var(--clc-surface-2); border: 1px solid var(--clc-border);
+  border-radius: 4px; position: relative; cursor: default;
+}
+.clc-strip:hover { outline: 2px solid var(--clc-actual); }
+
+/* --- Replay-kort ------------------------------------------------------------ */
+.clc-replay { border-left: 3px solid var(--clc-actual); padding-left: 14px; }
+.clc-lane-label { font-size: .75rem; color: var(--clc-text-dim); }
+
+/* --- Tabeller ---------------------------------------------------------------- */
+.clc-table-wrap { overflow-x: auto; }
+table.clc {
+  border-collapse: collapse; width: 100%; font-size: .9rem;
+}
+table.clc th, table.clc td {
+  text-align: left; padding: 6px 10px;
+  border-bottom: 1px solid var(--clc-border);
+}
+table.clc th { color: var(--clc-text-dim); font-weight: 600; }
+table.clc td.num, table.clc th.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+/* --- Forbehold (obligatorisk, auto-genereret fra metrics.json) --------------- */
+.clc-caveats {
+  background: var(--clc-surface-2);
+  border: 1px dashed var(--clc-border);
+  border-radius: var(--clc-radius);
+  padding: 16px 20px; font-size: .88rem;
+}
+.clc-caveats h2::before { content: "⚠ "; }
+.clc-caveats ul { margin: 8px 0 0; padding-left: 20px; }
+.clc-caveats li { margin-bottom: 4px; }
