@@ -35,7 +35,7 @@ def test_collect_finds_ids_assumptions_and_sources():
 
 
 def test_render_marks_kinds_and_missing():
-    catalog = {m["id"]: m for m in json.loads(METRICS.read_text())["metrics"]}
+    catalog = {m["id"]: m for m in json.loads(METRICS.read_text(encoding="utf-8"))["metrics"]}
     out = caveats.render({"phase_share", "counterfactual_gain", "ukendt_metrik"},
                          ["antagelse X"], [], catalog)
     assert 'data-clc-section="caveats"' in out
@@ -73,7 +73,7 @@ def test_full_pipeline_from_lens_output(tmp_path):
 def test_cli_stdin(tmp_path, capsys, monkeypatch):
     doc = {"m": {"kind": "measured", "metric_id": "phase_share"}}
     p = tmp_path / "out.json"
-    p.write_text(json.dumps(doc))
+    p.write_text(json.dumps(doc), encoding="utf-8")
     rc = caveats.main([str(p), "--metrics", str(METRICS)])
     assert rc == 0
     out = capsys.readouterr().out

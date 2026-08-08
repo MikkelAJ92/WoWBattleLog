@@ -81,7 +81,7 @@ def extract_metrics(lens_result: dict) -> dict:
 
 def _load(path: Path) -> dict:
     if path.exists():
-        return json.loads(path.read_text())
+        return json.loads(path.read_text(encoding="utf-8"))
     return {"goals": [], "entries": []}
 
 
@@ -97,7 +97,8 @@ def snapshot(path: Path, lens_result: dict, spec: str | None = None,
         "metrics": extract_metrics(lens_result),
     }
     data["entries"].append(entry)
-    path.write_text(json.dumps(data, ensure_ascii=False, indent=1))
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=1),
+                    encoding="utf-8")
     return entry
 
 
@@ -194,6 +195,7 @@ def render_text(rep: dict) -> str:
 
 
 def main(argv=None) -> int:
+    profile_mod.utf8_stdio()
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
     sn = sub.add_parser("snapshot")
@@ -214,7 +216,8 @@ def main(argv=None) -> int:
 
     path = Path(args.baseline)
     if args.cmd == "snapshot":
-        entry = snapshot(path, json.loads(Path(args.lens_output).read_text()),
+        entry = snapshot(path,
+                         json.loads(Path(args.lens_output).read_text(encoding="utf-8")),
                          spec=args.spec, measured_at=args.measured_at)
         json.dump(entry, sys.stdout, ensure_ascii=False, indent=1)
         print()
@@ -231,7 +234,8 @@ def main(argv=None) -> int:
                          if g["metric"] != args.metric] + [{
                              "metric": args.metric, "op": args.op,
                              "target": args.target, "note": args.note}]
-        path.write_text(json.dumps(data, ensure_ascii=False, indent=1))
+        path.write_text(json.dumps(data, ensure_ascii=False, indent=1),
+                    encoding="utf-8")
         print(f"Mål sat: {args.metric} {args.op} {args.target}")
     return 0
 

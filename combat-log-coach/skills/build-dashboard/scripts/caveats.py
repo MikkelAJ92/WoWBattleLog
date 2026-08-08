@@ -107,19 +107,28 @@ def render(metric_ids: set[str], assumptions: list[str],
 
 
 def build(analysis: dict | list, metrics_path: Path = _DEFAULT_METRICS) -> str:
-    data = json.loads(Path(metrics_path).read_text())
+    data = json.loads(Path(metrics_path).read_text(encoding="utf-8"))
     catalog = {m["id"]: m for m in data["metrics"]}
     metric_ids, assumptions, externals = collect(analysis)
     return render(metric_ids, assumptions, externals, catalog)
 
 
+def utf8_stdio() -> None:
+    """Windows-stdio defaulter til cp1252; HTML-output og danske tekster er UTF-8."""
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8")
+
+
 def main(argv=None) -> int:
+    utf8_stdio()
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("input", help="Linse-/analyse-output JSON ('-' = stdin)")
     ap.add_argument("--metrics", default=str(_DEFAULT_METRICS),
                     help="Sti til metrics.json")
     args = ap.parse_args(argv)
-    raw = sys.stdin.read() if args.input == "-" else Path(args.input).read_text()
+    raw = sys.stdin.read() if args.input == "-" \
+        else Path(args.input).read_text(encoding="utf-8")
     print(build(json.loads(raw), Path(args.metrics)))
     return 0
 
