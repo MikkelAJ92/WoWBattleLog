@@ -86,94 +86,121 @@ def unit_died(t, unit):
 
 
 def build() -> str:
-    L = []
-    L.append(line(ts(20, 0, 0), "COMBAT_LOG_VERSION", 22,
-                  "ADVANCED_LOG_ENABLED", 1, "BUILD_VERSION", "11.2.0",
-                  "PROJECT_ID", 1))
-    L.append(line(ts(20, 0, 1), "ZONE_CHANGE", 2660,
-                  '"Ara-Kara, City of Echoes"', 23))
-    L.append(line(ts(20, 0, 5), "CHALLENGE_MODE_START",
-                  '"Ara-Kara, City of Echoes"', 2660, 503, 12, "[160,9,10]"))
+    """Byg fixturen som (tid, linje)-par og sortér globalt — ægte combat
+    logs er kronologiske, og pull-segmenteringen afhænger af det."""
+    L: list[tuple[float, str]] = []
 
-    # --- Pull 1: trash (20:00:10 – 20:00:39) --------------------------------
-    L.append(cast_success(ts(20, 0, 9.5), WOLF, MOB, BITE, 1002, 2001,
-                          owner=HUNTER[0]))  # pet-ejer via cast-advanced
+    def emit(sec: float, text: str) -> None:
+        L.append((sec, text))
+
+    def tsec(h, m, s) -> float:
+        return h * 3600 + m * 60 + s
+
+    emit(tsec(20, 0, 0), line(ts(20, 0, 0), "COMBAT_LOG_VERSION", 22,
+                              "ADVANCED_LOG_ENABLED", 1, "BUILD_VERSION",
+                              "11.2.0", "PROJECT_ID", 1))
+    emit(tsec(20, 0, 1), line(ts(20, 0, 1), "ZONE_CHANGE", 2660,
+                              '"Ara-Kara, City of Echoes"', 23))
+    emit(tsec(20, 0, 5), line(ts(20, 0, 5), "CHALLENGE_MODE_START",
+                              '"Ara-Kara, City of Echoes"', 2660, 503, 12,
+                              "[160,9,10]"))
+
+    # --- Pull 1: trash (20:00:10 – 20:00:37.55) -----------------------------
+    emit(tsec(20, 0, 9.5), cast_success(ts(20, 0, 9.5), WOLF, MOB, BITE,
+                                        1002, 2001, owner=HUNTER[0]))
     mob_hp = 3_000_000
     for i in range(30):
         t = 10 + i * 0.95
-        L.append(cast_success(ts(20, 0, t - 0.1), MAGE, MOB, FROSTBOLT,
-                              1000 + i, 2000, pc=250000 - i * 800))
+        emit(tsec(20, 0, t - 0.1),
+             cast_success(ts(20, 0, t - 0.1), MAGE, MOB, FROSTBOLT,
+                          1000 + i, 2000, pc=250000 - i * 800))
         mob_hp -= 6000
-        L.append(spell_damage(ts(20, 0, t), MAGE, MOB, FROSTBOLT, 6000,
-                              mob_hp, 3_000_000, 3000, 4000))
-    L.append(aura(ts(20, 0, 11), MAGE, MOB, (228358, '"Winter\'s Chill"', 16),
-                  "DEBUFF"))
-    L.append(aura(ts(20, 0, 12), MAGE, MAGE,
-                  (44544, '"Fingers of Frost"', 16), "BUFF"))
-    L.append(line(ts(20, 0, 13), "SPELL_ENERGIZE", MAGE[0], f'"{MAGE[1]}"',
-                  MAGE[2], "0x0", MAGE[0], f'"{MAGE[1]}"', MAGE[2], "0x0",
-                  190446, '"Brain Freeze"', 16,
-                  *adv(MAGE[0], NIL, 2500000, 2800000, x=1010, y=2000),
-                  500, 0, 0, 250000))
+        emit(tsec(20, 0, t), spell_damage(ts(20, 0, t), MAGE, MOB, FROSTBOLT,
+                                          6000, mob_hp, 3_000_000, 3000, 4000))
+    emit(tsec(20, 0, 11), aura(ts(20, 0, 11), MAGE, MOB,
+                               (228358, '"Winter\'s Chill"', 16), "DEBUFF"))
+    emit(tsec(20, 0, 12), aura(ts(20, 0, 12), MAGE, MAGE,
+                               (44544, '"Fingers of Frost"', 16), "BUFF"))
+    emit(tsec(20, 0, 13), line(ts(20, 0, 13), "SPELL_ENERGIZE", MAGE[0],
+                               f'"{MAGE[1]}"', MAGE[2], "0x0", MAGE[0],
+                               f'"{MAGE[1]}"', MAGE[2], "0x0",
+                               190446, '"Brain Freeze"', 16,
+                               *adv(MAGE[0], NIL, 2500000, 2800000,
+                                    x=1010, y=2000),
+                               500, 0, 0, 250000))
     for i in range(10):
+        t = 12 + i * 2.5
         mob_hp -= 3000
-        L.append(spell_damage(ts(20, 0, 12 + i * 2.5), HUNTER, MOB,
-                              ARCANE_SHOT, 3000, mob_hp, 3_000_000, 3010, 4010))
+        emit(tsec(20, 0, t), spell_damage(ts(20, 0, t), HUNTER, MOB,
+                                          ARCANE_SHOT, 3000, mob_hp,
+                                          3_000_000, 3010, 4010))
     for i in range(15):
+        t = 11 + i * 1.8
         mob_hp -= 2000
-        L.append(swing_damage(ts(20, 0, 11 + i * 1.8), WOLF, MOB, 2000,
-                              mob_hp, 3_000_000, 3005, 4005))
-    L.append(unit_died(ts(20, 0, 39), MOB))
+        emit(tsec(20, 0, t), swing_damage(ts(20, 0, t), WOLF, MOB, 2000,
+                                          mob_hp, 3_000_000, 3005, 4005))
+    emit(tsec(20, 0, 39), unit_died(ts(20, 0, 39), MOB))
 
     # --- støj mellem pulls ---------------------------------------------------
-    L.append(line(ts(20, 0, 50), "TOTALLY_NEW_EVENT", "foo", '"bar"', 1, 2, 3))
-    L.append("garbage line without separator")
+    emit(tsec(20, 0, 50), line(ts(20, 0, 50), "TOTALLY_NEW_EVENT", "foo",
+                               '"bar"', 1, 2, 3))
+    emit(tsec(20, 0, 50.5), "garbage line without separator")
 
-    # --- Pull 2: boss (20:01:02 – 20:02:00) ---------------------------------
-    L.append(line(ts(20, 1, 0), "ENCOUNTER_START", 2926, '"Avanoxx"', 8, 5,
-                  2660))
+    # --- Pull 2: boss (20:01:02 – 20:01:57.1) -------------------------------
+    emit(tsec(20, 1, 0), line(ts(20, 1, 0), "ENCOUNTER_START", 2926,
+                              '"Avanoxx"', 8, 5, 2660))
     boss_hp = 25_000_000
     for i in range(40):
-        t = 62 + i * 1.2
-        L.append(cast_success(ts(20, 1, t - 60 - 0.1), MAGE, BOSS, FROSTBOLT,
-                              1100 + i, 2100))
+        t = 2 + i * 1.2
+        emit(tsec(20, 1, t - 0.1),
+             cast_success(ts(20, 1, t - 0.1), MAGE, BOSS, FROSTBOLT,
+                          1100 + i, 2100))
         boss_hp -= 6000
-        L.append(spell_damage(ts(20, 1, t - 60), MAGE, BOSS, FROSTBOLT, 6000,
-                              boss_hp, 25_000_000, 3100, 4100))
+        emit(tsec(20, 1, t), spell_damage(ts(20, 1, t), MAGE, BOSS, FROSTBOLT,
+                                          6000, boss_hp, 25_000_000,
+                                          3100, 4100))
     # ikke-numerisk amount → parse_warning, må ikke crashe
     bad = spell_damage(ts(20, 1, 10), MAGE, BOSS, FROSTBOLT, 6000,
                        boss_hp, 25_000_000, 3100, 4100)
-    L.append(bad.replace(",6000,6000,-1,16,", ",NaNsense,6000,-1,16,", 1))
+    emit(tsec(20, 1, 10.05),
+         bad.replace(",6000,6000,-1,16,", ",NaNsense,6000,-1,16,", 1))
     for i in range(20):
+        t = 2 + i * 2.9
         boss_hp -= 3000
-        L.append(spell_damage(ts(20, 1, 62 - 60 + i * 2.9), HUNTER, BOSS,
-                              ARCANE_SHOT, 3000, boss_hp, 25_000_000,
-                              3110, 4110))
+        emit(tsec(20, 1, t), spell_damage(ts(20, 1, t), HUNTER, BOSS,
+                                          ARCANE_SHOT, 3000, boss_hp,
+                                          25_000_000, 3110, 4110))
     # boss slår spilleren — hp falder, advanced beskriver spilleren (dest)
     player_hp = 2_800_000
     for i in range(10):
+        t = 20 + i * 3
         player_hp -= 260_000
-        L.append(spell_damage(ts(20, 1, 20 + i * 3), BOSS, MAGE, BOSS_HIT,
-                              260_000, max(player_hp, 0), 2_800_000,
-                              1105 + i, 2105))
-    L.append(unit_died(ts(20, 1, 55), MAGE))
-    L.append(line(ts(20, 2, 1), "ENCOUNTER_END", 2926, '"Avanoxx"', 8, 5, 1,
-                  59000))
-    L.append(line(ts(20, 2, 30), "CHALLENGE_MODE_END", 2660, 1, 12, 1830000))
+        emit(tsec(20, 1, t), spell_damage(ts(20, 1, t), BOSS, MAGE, BOSS_HIT,
+                                          260_000, max(player_hp, 0),
+                                          2_800_000, 1105 + i, 2105))
+    emit(tsec(20, 1, 49), unit_died(ts(20, 1, 49), MAGE))
+    emit(tsec(20, 2, 1), line(ts(20, 2, 1), "ENCOUNTER_END", 2926,
+                              '"Avanoxx"', 8, 5, 1, 59000))
+    emit(tsec(20, 2, 30), line(ts(20, 2, 30), "CHALLENGE_MODE_END", 2660, 1,
+                               12, 1830000))
 
     # --- Dummy-klynge i Valdrakken (> 5 min senere) --------------------------
-    L.append(line(ts(20, 40, 0), "ZONE_CHANGE", 2112, '"Valdrakken"', 0))
+    emit(tsec(20, 40, 0), line(ts(20, 40, 0), "ZONE_CHANGE", 2112,
+                               '"Valdrakken"', 0))
     dummy_hp = 5_000_000
     for i in range(28):
         t = 60 + i * 2.0
         mc, sc = divmod(t - 0.1, 60)
-        L.append(cast_success(ts(20, 40 + int(mc), sc), MAGE, DUMMY,
-                              FROSTBOLT, 500 + i, 600))
+        emit(tsec(20, 40, t - 0.1),
+             cast_success(ts(20, 40 + int(mc), sc), MAGE, DUMMY, FROSTBOLT,
+                          500 + i, 600))
         m, s = divmod(t, 60)
         dummy_hp -= 1000
-        L.append(spell_damage(ts(20, 40 + int(m), s), MAGE, DUMMY, FROSTBOLT,
-                              1000, dummy_hp, 5_000_000, 700, 800))
-    return "\n".join(L) + "\n"
+        emit(tsec(20, 40, t), spell_damage(ts(20, 40 + int(m), s), MAGE,
+                                           DUMMY, FROSTBOLT, 1000, dummy_hp,
+                                           5_000_000, 700, 800))
+    L.sort(key=lambda p: p[0])
+    return "\n".join(text for _, text in L) + "\n"
 
 
 def write(path: Path) -> Path:

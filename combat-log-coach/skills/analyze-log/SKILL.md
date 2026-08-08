@@ -63,10 +63,34 @@ Tjek altid inden videre analyse:
 
 ## Trin 4 · Linser (F3)
 
-Genkørbare datasnit over cachen — mål-antal, bevægelse, rotation,
-overlevelse, sustain (fase-andel), kontekst-attribution — leveres af
-`scripts/lenses.py` *(under udbygning — kør ad hoc-snit direkte mod
-`iter_run_events` i `scripts/parse.py`, indtil linsebiblioteket er komplet)*.
+Genkørbare datasnit over cachen — re-parse aldrig rå-loggen for et
+opfølgende spørgsmål:
+
+```bash
+python3 scripts/lenses.py <cache-root> <logstem> \
+    [--lens targets|movement|rotation|survival|sustain|context]... \
+    [--run N]... [--spec-config spec.json]
+```
+
+| Linse | Svarer på |
+|---|---|
+| `targets` | DPS/fejlrate pr. target-bucket (1/2/3–5/6+) |
+| `movement` | Tabt casttid i bevægelse vs. stillestående; yd/min; selvafbrudte casts |
+| `rotation` | CPM, skadefordeling, proc-forbrug, CD-udnyttelse, blind spender-rate |
+| `survival` | Death recaps (sidste 6 s), defensiv-timing og -tilgængelighed |
+| `sustain` | Fase-andel af **gruppens** skade (obligatorisk metode; egen kurve er sekundær) |
+| `context` | Fejl attribueret pr. situation (åbning/pakkevækst/bevægelse/sen-pull — ikke-eksklusiv) |
+
+- Hvert resultat-tal bærer `kind`/`metric`/`error_source` fra `metrics.json` —
+  brug dem direkte i artifacts; find aldrig selv på forbehold.
+- **Spec-config** (spenders/procs/defensives/major_cds med spell-id'er) låser
+  blind spender-rate, CD-disciplin og defensiv-timing op. Byg den sammen med
+  brugeren én gang pr. spec og gem den i projektmappen (fx
+  `spec-configs/frost-mage.json`). Uden config degraderer linserne pænt og
+  siger eksplicit hvad der mangler.
+- Til frie hypotese-spørgsmål ("er mine blind casts i samle-fasen?") der ikke
+  dækkes af en linse: skriv et lille snit mod `iter_run_events` i
+  `scripts/parse.py` — samme cache, samme rækkelayout.
 
 ## Hårde regler
 
