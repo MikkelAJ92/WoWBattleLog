@@ -1,0 +1,8 @@
+{
+  "name": "combat-log-coach",
+  "description": "Personlig WoW-præstationsanalyse og coaching fra rå combat logs: event-forankrede fejl, kontrafaktisk model, keybind-oversat coaching og progression mod egen baseline.",
+  "version": "0.1.0",
+  "author": {
+    "name": "WoWBattleLog"
+  }
+}
