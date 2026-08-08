@@ -92,6 +92,22 @@ python3 scripts/lenses.py <cache-root> <logstem> \
   dækkes af en linse: skriv et lille snit mod `iter_run_events` i
   `scripts/parse.py` — samme cache, samme rækkelayout.
 
+## Trin 5 · Kontrafaktisk model (valgfrit, v2)
+
+"Samme run, spillet rigtigt" — som deklareret overslag:
+
+```bash
+python3 scripts/counterfactual.py <cache-root> <logstem> \
+    [--run N] [--spec-config spec.json]
+```
+
+Output: waterfall-komponenter (blinde spenders / tabt casttid / selvafbrud)
+med **empiriske priser målt i brugerens egen log**, obligatoriske
+intervaller, event-placeret kurve pr. 10 s-bucket til master-tidslinjen, og
+`reconciliation` der afstemmer event-placeret sum mod waterfall med
+deklareret overlap. Alt er `kind: modeled` med "overslag, ikke sim" i
+antagelserne — præsentér det aldrig som andet.
+
 ## Hårde regler
 
 - **Målt ≠ modelleret:** hvert tal du rapporterer er enten (a) talt i loggen,

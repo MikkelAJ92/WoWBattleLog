@@ -20,7 +20,8 @@ combat-log-coach/                  # selve plugin'et
 │   │       ├── parse.py           # streaming parser, segmentering, cache
 │   │       ├── lenses.py          # 6 genkørbare analyselinser
 │   │       ├── profile.py         # F2: spillestils-profil (kerneaktivet)
-│   │       └── baseline.py        # F7: progression, delta-rapport, goals
+│   │       ├── baseline.py        # F7: progression, delta-rapport, goals
+│   │       └── counterfactual.py  # v2: Σ(fejl × empirisk pris) m. intervaller
 │   ├── build-dashboard/           # F4: visuel artifact
 │   │   ├── SKILL.md               # komponentbibliotek + dataviz-regler
 │   │   └── scripts/caveats.py     # auto-genereret forbehold-sektion
@@ -81,7 +82,7 @@ tåler ukendte events/felter uden crash. Ydelse: ~100 MB log parses på ~8 s.
 |---|---|---|
 | MVP | F1 + F3 (linser) + F4 (dashboard + forbehold) | ✅ værktøjer bygget |
 | v1 | F2-profil, F5-coaching, F7-baseline | ✅ værktøjer bygget |
-| v2 | Kontrafaktisk model, rutekort, F6-guides m. citations-lint, re-verifikation | 🔶 F6 + rutekort-spec klar; kontrafaktisk model undervejs |
+| v2 | Kontrafaktisk model, rutekort, F6-guides m. citations-lint, re-verifikation | ✅ værktøjer bygget (patch-dag-gennemløb udestår i praksis) |
 
 ## Hårde designprincipper
 
