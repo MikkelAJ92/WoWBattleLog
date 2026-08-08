@@ -1,0 +1,82 @@
+{
+  "_comment": "Normativt metrik-katalog (PRD afsnit 6). Forbehold-sektionen i alle artifacts GENERERES fra 'error_source'-felterne her — den må ikke håndskrives. Linserne refererer metrikker via 'id'.",
+  "metrics": [
+    {
+      "id": "blind_spender_rate",
+      "name": "Blind spender-rate",
+      "definition": "Spender-casts på mål uden relevant debuff/proc-state / alle spender-casts",
+      "error_source": "Aura-state pr. GUID; nye spawns uden logget applikation tælles som 0-state",
+      "kind": "measured"
+    },
+    {
+      "id": "payoff_rate",
+      "name": "Shatter-/payoff-rate",
+      "definition": "Payoff-event på samme mål < 1,2 s efter trigger-cast",
+      "error_source": "Kan kreditere anden kilde; let optimistisk",
+      "kind": "measured"
+    },
+    {
+      "id": "lost_cast_time_moving",
+      "name": "Tabt casttid (bevægelse)",
+      "definition": "Cast-huller 1,7–30 s attribueret via positionsdelta > forventet",
+      "error_source": "Kun start/slut kendes mellem casts; inkluderer tvunget løb",
+      "kind": "measured"
+    },
+    {
+      "id": "cd_discipline",
+      "name": "CD-udnyttelse",
+      "definition": "Faktiske casts / (varighed ÷ observeret median-cadence + 1) pr. pull",
+      "error_source": "Antager egen cadence; CD-carry mellem pulls",
+      "kind": "measured"
+    },
+    {
+      "id": "proc_utilization",
+      "name": "Proc-udnyttelse",
+      "definition": "Procs forbrugt før udløb / procs opnået; munch-events tælles separat",
+      "error_source": "Refresh-semantik varierer pr. aura",
+      "kind": "measured"
+    },
+    {
+      "id": "phase_share",
+      "name": "Fase-andel",
+      "definition": "Egen skade / gruppens skade pr. pull-fase (pulls ≥ 45 s)",
+      "error_source": "Kræver fuld gruppe-parse; pets attribueres via owner-felt",
+      "kind": "measured"
+    },
+    {
+      "id": "counterfactual_gain",
+      "name": "Kontrafaktisk gevinst",
+      "definition": "Σ(fejl × empirisk pris) event-placeret; intervaller obligatoriske",
+      "error_source": "Komponenter kan overlappe; er overslag, ikke sim",
+      "kind": "modeled"
+    },
+    {
+      "id": "target_buckets",
+      "name": "Mål-antal-fordeling",
+      "definition": "DPS og fejlrate pr. target-bucket (1/2/3–5/6+) via distinkte ramte GUIDs pr. 10 s-vindue",
+      "error_source": "Vinduesgrænser kan splitte swaps; bucket afspejler ramte mål, ikke tilgængelige mål",
+      "kind": "measured"
+    },
+    {
+      "id": "selfcancelled_casts",
+      "name": "Selvafbrudte hard-casts",
+      "definition": "SPELL_CAST_START uden efterfølgende SUCCESS af samme spell inden næste cast/6 s",
+      "error_source": "Kan inkludere lag/serverafvisning; fanger ikke afbrud efter spell-queue",
+      "kind": "measured"
+    },
+    {
+      "id": "context_attribution",
+      "name": "Kontekst-attribution",
+      "definition": "Fejl-events mærket pr. situation (åbning ≤5 s, pakkevækst, i bevægelse, sen-pull) — ikke-eksklusive andele",
+      "error_source": "Kontekster overlapper bevidst (summer > 100 %); bevægelse kræver advanced logging",
+      "kind": "measured"
+    },
+    {
+      "id": "defensive_timing",
+      "name": "Defensiv timing",
+      "definition": "Median-sekunder fra stort hit (>20 % max-HP) til defensiv-cast ≤ 5 s efter",
+      "error_source": "Kræver spec-config med defensiv-liste; proaktive casts uden foregående hit indgår ikke i medianen",
+      "kind": "measured"
+    }
+  ]
+}

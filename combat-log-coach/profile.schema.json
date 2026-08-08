@@ -1,0 +1,193 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://wowbattlelog.local/combat-log-coach/profile.schema.json",
+  "title": "Spillestils-profil (F2)",
+  "description": "Persistent, spec-agnostisk profil af spillerens målte egenskaber. Opdateres pr. analyse. Alle felter bærer målemetode og senest-målt-tidspunkt, så tal aldrig optræder uden proveniens (målt ≠ modelleret-princippet).",
+  "type": "object",
+  "required": ["schema_version", "player", "measurements"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "type": "integer", "const": 1 },
+    "player": {
+      "type": "object",
+      "required": ["name"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string", "description": "Karakternavn (uden realm hvis muligt)" },
+        "guid": { "type": "string", "description": "Player-GUID fra loggen, hvis kendt" },
+        "specs_seen": {
+          "type": "array",
+          "description": "Specs profilen er målt på — profilens kategorier er spec-agnostiske, men målingerne bærer deres kilde-spec.",
+          "items": { "type": "string" }
+        },
+        "keybinds": {
+          "type": "object",
+          "description": "Brugerens binds registreret én gang, nøglet på finger-rolle (F5-keybind-oversætteren). Roller bevares på tværs af specs/klasser.",
+          "additionalProperties": false,
+          "properties": {
+            "builder": { "$ref": "#/$defs/bind" },
+            "spender": { "$ref": "#/$defs/bind" },
+            "proc": { "$ref": "#/$defs/bind" },
+            "cd_major": { "$ref": "#/$defs/bind" },
+            "cd_minor": { "$ref": "#/$defs/bind" },
+            "aoe": { "$ref": "#/$defs/bind" },
+            "defensive": { "$ref": "#/$defs/bind" },
+            "emergency": { "$ref": "#/$defs/bind" },
+            "movement": { "$ref": "#/$defs/bind" },
+            "interrupt": { "$ref": "#/$defs/bind" }
+          }
+        },
+        "ui_stack": {
+          "type": "array",
+          "description": "Brugerens UI-pakker/addons (fx 'NaowhUI', 'EllesmereUI', 'native Cooldown Manager') — cue-generatoren udtrykker anvisninger i denne stack.",
+          "items": { "type": "string" }
+        },
+        "goals": { "type": "string", "description": "Brugerens egne mål i fri tekst (fx 'time +12s stabilt')" }
+      }
+    },
+    "measurements": {
+      "type": "object",
+      "description": "Målte, spec-agnostiske egenskaber. Hvert felt er en Measurement med value, metric-definition og senest-målt.",
+      "additionalProperties": false,
+      "properties": {
+        "proc_utilization": {
+          "$ref": "#/$defs/measurement",
+          "description": "Procs forbrugt før udløb / procs opnået. Munch-events tælles separat."
+        },
+        "apm": {
+          "allOf": [{ "$ref": "#/$defs/measurement" }],
+          "description": "Tempo: casts/min, presses pr. GCD, spildte tryk/min.",
+          "properties": {
+            "value": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "casts_per_min": { "type": "number" },
+                "presses_per_gcd": { "type": "number" },
+                "wasted_presses_per_min": { "type": "number" }
+              }
+            }
+          }
+        },
+        "movement_cost": {
+          "allOf": [{ "$ref": "#/$defs/measurement" }],
+          "description": "Bevægelsens pris: andel af tabt casttid attribueret til bevægelse, selvafbrudte hard-casts.",
+          "properties": {
+            "value": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "lost_cast_seconds_moving_share": { "type": "number", "minimum": 0, "maximum": 1 },
+                "selfcancelled_hardcasts": { "type": "integer", "minimum": 0 }
+              }
+            }
+          }
+        },
+        "defensive_timing": {
+          "allOf": [{ "$ref": "#/$defs/measurement" }],
+          "description": "Defensiv stil: reaktiv vs. proaktiv, median-sekunder fra hit til defensiv.",
+          "properties": {
+            "value": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "style": { "type": "string", "enum": ["reactive", "proactive", "mixed"] },
+                "median_s_from_hit_to_defensive": { "type": "number", "minimum": 0 }
+              }
+            }
+          }
+        },
+        "cd_discipline": {
+          "$ref": "#/$defs/measurement",
+          "description": "On-CD ability casts / mulige casts (observeret median-cadence-metode; se metrik-katalog for fejlkilder)."
+        },
+        "target_swap_discipline": {
+          "allOf": [{ "$ref": "#/$defs/measurement" }],
+          "description": "Blind spender-rate opdelt på single target og AoE.",
+          "properties": {
+            "value": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "blind_spender_rate_st": { "type": "number", "minimum": 0, "maximum": 1 },
+                "blind_spender_rate_aoe": { "type": "number", "minimum": 0, "maximum": 1 }
+              }
+            }
+          }
+        },
+        "sustain": {
+          "allOf": [{ "$ref": "#/$defs/measurement" }],
+          "description": "Fase-andels-kurve: egen skade som andel af gruppens skade pr. pull-fase (obligatorisk andels-metode, jf. F3).",
+          "properties": {
+            "value": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "phase_share_curve": {
+                  "type": "array",
+                  "items": { "type": "number", "minimum": 0, "maximum": 1 }
+                },
+                "phase_width_s": { "type": "number", "default": 10 }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "bind": {
+      "type": "object",
+      "required": ["key"],
+      "additionalProperties": false,
+      "properties": {
+        "key": { "type": "string", "description": "Fysisk tast/kombination, fx 'Shift-3' eller 'MB4'" },
+        "note": { "type": "string" }
+      }
+    },
+    "measurement": {
+      "type": "object",
+      "description": "Én måling med fuld proveniens. 'kind' skelner hårdt mellem talt-i-log, modelleret og eksternt hentet (designprincip: målt ≠ modelleret er datastruktur, ikke stil).",
+      "required": ["value", "metric", "kind", "measured_at"],
+      "properties": {
+        "value": {},
+        "metric": { "type": "string", "description": "Præcis definition af hvordan tallet er beregnet" },
+        "kind": {
+          "type": "string",
+          "enum": ["measured", "modeled", "external"],
+          "description": "measured = talt i loggen; modeled = kræver assumptions+interval; external = kræver source_url"
+        },
+        "interval": {
+          "type": "array",
+          "description": "Obligatorisk for kind=modeled: [lav, høj]",
+          "items": { "type": "number" },
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "assumptions": {
+          "type": "array",
+          "description": "Obligatorisk for kind=modeled: eksplicitte antagelser",
+          "items": { "type": "string" }
+        },
+        "source_url": { "type": "string", "description": "Obligatorisk for kind=external" },
+        "measured_at": { "type": "string", "format": "date-time", "description": "Senest målt (ISO 8601)" },
+        "source_spec": { "type": "string", "description": "Spec målingen stammer fra, fx 'Frost Mage'" },
+        "sample": {
+          "type": "object",
+          "description": "Datagrundlag: antal events/pulls/runs bag tallet",
+          "additionalProperties": { "type": "integer" }
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "kind": { "const": "modeled" } } },
+          "then": { "required": ["interval", "assumptions"] }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "external" } } },
+          "then": { "required": ["source_url"] }
+        }
+      ]
+    }
+  }
+}
