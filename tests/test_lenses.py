@@ -234,3 +234,56 @@ def test_blind_spender_stack_threshold(tmp_path):
     assert blind(4) == 45
     assert blind(6) == 47
     assert blind(9) == 70    # rampen topper på 8 → hver eneste cast er blind
+
+
+# --- rolle-metrikker ---------------------------------------------------------
+
+def _role_rd(rows, pulls=None):
+    run = {"pulls": pulls or [{"id": 1, "t0": 0.0, "t1": 60.0, "duration_s": 60.0}],
+           "bosses": [], "deaths": []}
+    return lenses.RunData(run, rows, "P1", {"P1", "P2"}, {})
+
+
+def test_resource_waste_requires_declared_resource():
+    """Uden erklæret ressource må metrikken IKKE beregnes — mana står fuld
+    hele kampen, og en spildprocent på den er et artefakt."""
+    rows = [_row(i * 2.0, "SPELL_CAST_SUCCESS", sp=116,
+                 ex={"pt": 0, "pc": 250000, "pm": 250000}) for i in range(10)]
+    rd = _role_rd(rows)
+    assert lenses._resource_waste(rd, lenses.SpecConfig({"role": "dps"})) is None
+    # med erklæret ressource beregnes den
+    spec = lenses.SpecConfig({"role": "tank", "resource": {"power_type": 0}})
+    out = lenses._resource_waste(rd, spec)
+    assert out["value"]["capped_casts"] == 10
+    assert out["value"]["capped_without_spender"] == 10
+
+
+def test_resource_waste_ignores_other_power_types():
+    """Kun den erklærede ressource tælles — en spec med flere ressourcer må
+    ikke få mana-casts blandet ind i Runic Power-regnskabet."""
+    rows = [_row(1.0, "SPELL_CAST_SUCCESS", sp=1, ex={"pt": 6, "pc": 100, "pm": 100}),
+            _row(2.0, "SPELL_CAST_SUCCESS", sp=2, ex={"pt": 0, "pc": 999, "pm": 1000})]
+    spec = lenses.SpecConfig({"role": "tank", "resource": {"power_type": 6}})
+    out = lenses._resource_waste(_role_rd(rows), spec)
+    assert out["value"]["casts_with_resource_data"] == 1
+
+
+def test_healer_gets_heal_metrics_not_phase_share():
+    rows = [
+        _row(1.0, "SPELL_HEAL", sg="P1", dg="P2", amt=1000, ex={"overheal": 500}),
+        _row(2.0, "SPELL_HEAL", sg="P2", dg="P2", amt=1000, ex={"overheal": 0}),
+    ]
+    out = lenses.lens_role(_role_rd(rows), lenses.SpecConfig({"role": "healer"}))
+    assert out["role"] == "healer"
+    # measured() runder til 3 decimaler
+    assert out["overheal_rate"]["value"] == pytest.approx(1 / 3, abs=1e-3)
+    assert out["heal_share"]["value"] == pytest.approx(0.5)        # 1000/2000
+    assert "damage_taken_smoothing" not in out   # tank-metrik, udeladt
+
+
+def test_tank_metrics_gated_on_spec_config():
+    rows = [_row(1.0, "SPELL_DAMAGE", sg="Boss", dg="P1", amt=500,
+                 ex={"hp": 100, "hpmax": 1000})]
+    out = lenses.lens_role(_role_rd(rows), lenses.SpecConfig({"role": "tank"}))
+    assert "note_mitigation" in out and "note_selfheal" in out
+    assert "mitigation_uptime" not in out

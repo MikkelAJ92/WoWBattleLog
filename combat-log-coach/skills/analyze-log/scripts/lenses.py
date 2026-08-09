@@ -92,10 +92,20 @@ class SpecConfig:
     def __init__(self, raw: dict | None):
         raw = raw or {}
         self.spec = raw.get("spec")
+        # Rollen afgør hvilke metrikker der overhovedet giver mening. Uden
+        # angivelse antages dps — det er den eneste rolle hvis metrikker kan
+        # beregnes uden ekstra config.
+        self.role = raw.get("role", "dps")
         self.spenders = {int(k): v for k, v in raw.get("spenders", {}).items()}
         self.procs = {int(p) for p in raw.get("procs", [])}
         self.defensives = {int(k): v for k, v in raw.get("defensives", {}).items()}
         self.major_cds = {int(k): v for k, v in raw.get("major_cds", {}).items()}
+        # tank: auraer der udgør aktiv mitigering, og spenderen der heler self
+        self.mitigation = {int(k): v for k, v in raw.get("mitigation", {}).items()}
+        self.selfheal = {int(k): v for k, v in raw.get("selfheal", {}).items()}
+        # den rotationsbærende ressource (Runic Power, Holy Power, …).
+        # Udeladt for specs hvor ressourcen ikke er en begrænsning (mana).
+        self.resource = raw.get("resource")
 
     def __bool__(self):
         return bool(self.spenders or self.procs or self.defensives
@@ -677,8 +687,163 @@ def _moving_at(e: dict, pos_casts: list) -> bool:
 
 # --- Orkestrering ------------------------------------------------------------
 
+# --- Linse: rolle-specifikke metrikker ---------------------------------------
+# Metrik-kataloget mærker hver metrik med role (any/dps/tank/healer). Denne
+# linse beregner dem der IKKE er dps-metrikker, og udelader dem der ikke
+# gælder den målte rolle frem for at vise dem tomme.
+
+def _resource_waste(rd: RunData, spec: SpecConfig) -> dict | None:
+    """Casts hvor primærressourcen stod på max uden at spenderen blev brugt.
+
+    Blood DK-referencen: at cappe Runic Power uden at bruge Death Strike.
+    Samme vane som spender-spam, målt fra den anden side.
+
+    Kræver at spec-config erklærer den rotationsbærende ressource
+    (``resource: {"power_type": 6}``). Uden den beregnes intet: mana står
+    fuld hele kampen på de fleste specs, og en "spildprocent" på den ville
+    være et artefakt, ikke en fejl.
+    """
+    ptype = (spec.resource or {}).get("power_type")
+    if ptype is None:
+        return None
+    caps = spent = total = 0
+    for c in rd.casts:
+        ex = c[EX] or {}
+        pc, pm = ex.get("pc"), ex.get("pm")
+        if pc is None or not pm or ex.get("pt") != ptype:
+            continue
+        total += 1
+        if pc >= pm * 0.98:                     # reelt cappet
+            caps += 1
+            if c[SP] in spec.spenders:
+                spent += 1
+    if not total:
+        return None
+    return measured({"rate": round((caps - spent) / total, 3) if total else None,
+                     "capped_casts": caps, "capped_without_spender": caps - spent,
+                     "casts_with_resource_data": total},
+                    "resource_waste", sample={"casts": total})
+
+
+def _mitigation_uptime(rd: RunData, spec: SpecConfig) -> dict | None:
+    """Andel af skade taget mens en mitigerings-aura var oppe."""
+    if not spec.mitigation:
+        return None
+    active, dmg_covered, dmg_total = set(), 0, 0
+    stream = sorted(rd.rows, key=lambda r: r[T])
+    for r in stream:
+        ev = r[EV]
+        if ev.startswith("SPELL_AURA_") and r[DG] == rd.self_guid \
+                and r[SP] in spec.mitigation:
+            if ev == "SPELL_AURA_REMOVED":
+                active.discard(r[SP])
+            else:
+                active.add(r[SP])
+        elif ev in DAMAGE_EVENTS and r[DG] == rd.self_guid and r[AMT]:
+            dmg_total += r[AMT]
+            if active:
+                dmg_covered += r[AMT]
+    if not dmg_total:
+        return None
+    return measured({"share_of_damage_mitigated": round(dmg_covered / dmg_total, 3),
+                     "damage_taken": dmg_total},
+                    "mitigation_uptime", sample={"damage_taken": dmg_total})
+
+
+def _damage_taken_smoothing(rd: RunData) -> dict | None:
+    """Hvor spids den indgående skade er: største 5 s-vindue / median-vindue."""
+    per_pull = []
+    for p in rd.run.get("pulls", []):
+        b: dict[int, int] = {}
+        for r in rd.dmg_taken:
+            if p["t0"] <= r[T] <= p["t1"] and r[AMT]:
+                k = int((r[T] - p["t0"]) // 5)
+                b[k] = b.get(k, 0) + r[AMT]
+        if len(b) < 3:
+            continue
+        v = sorted(b.values())
+        med = statistics.median(v)
+        per_pull.append({"pull": p["id"], "max_5s": max(v), "median_5s": round(med),
+                         "spikiness": round(max(v) / med, 2) if med else None})
+    if not per_pull:
+        return None
+    sp = [x["spikiness"] for x in per_pull if x["spikiness"]]
+    return measured({"median_spikiness": round(statistics.median(sp), 2) if sp else None,
+                     "worst_pull": max(per_pull, key=lambda x: x["spikiness"] or 0),
+                     "per_pull": per_pull},
+                    "damage_taken_smoothing", sample={"pulls": len(per_pull)})
+
+
+def _selfheal_timing(rd: RunData, spec: SpecConfig) -> dict | None:
+    """Sekunder fra et stort hit til næste selvheal-spender."""
+    if not spec.selfheal:
+        return None
+    heals = sorted(c[T] for c in rd.casts if c[SP] in spec.selfheal)
+    if not heals:
+        return None
+    deltas = []
+    for r in rd.dmg_taken:
+        ex = r[EX] or {}
+        if not ex.get("hpmax") or not r[AMT]:
+            continue
+        if r[AMT] <= BIG_HIT_SHARE * ex["hpmax"]:
+            continue
+        nxt = next((t for t in heals if 0 <= t - r[T] <= 5), None)
+        if nxt is not None:
+            deltas.append(nxt - r[T])
+    if not deltas:
+        return None
+    med = statistics.median(deltas)
+    return measured({"median_s_from_hit_to_selfheal": round(med, 2),
+                     "style": "reactive" if med > 1.5 else "proactive",
+                     "selfheal_casts": len(heals)},
+                    "selfheal_timing", sample={"reactions": len(deltas)})
+
+
+def _heal_metrics(rd: RunData) -> dict:
+    """overheal_rate + heal_share — healerens modstykke til phase_share."""
+    own = over = 0
+    group_heal: dict[str, int] = {}
+    for r in rd.rows:
+        if r[EV] not in ("SPELL_HEAL", "SPELL_PERIODIC_HEAL") or not r[AMT]:
+            continue
+        owner = rd.pets.get(r[SG], r[SG])
+        if owner in rd.group_guids:
+            group_heal[owner] = group_heal.get(owner, 0) + r[AMT]
+        if r[SG] in rd.self_units:
+            own += r[AMT]
+            over += (r[EX] or {}).get("overheal") or 0
+    out = {}
+    if own or over:
+        out["overheal_rate"] = measured(
+            round(over / (own + over), 3) if (own + over) else None,
+            "overheal_rate", sample={"effective_healing": own, "overheal": over})
+    tot = sum(group_heal.values())
+    if tot:
+        out["heal_share"] = measured(round(own / tot, 3), "heal_share",
+                                     sample={"group_healing": tot})
+    return out
+
+
+def lens_role(rd: RunData, spec: SpecConfig) -> dict:
+    out = {"role": spec.role}
+    add = lambda k, v: out.__setitem__(k, v) if v is not None else None  # noqa: E731
+    add("resource_waste", _resource_waste(rd, spec))       # gælder alle roller
+    if spec.role == "tank":
+        add("mitigation_uptime", _mitigation_uptime(rd, spec))
+        add("damage_taken_smoothing", _damage_taken_smoothing(rd))
+        add("selfheal_timing", _selfheal_timing(rd, spec))
+        if not spec.mitigation:
+            out["note_mitigation"] = "mitigation_uptime kræver spec-config med mitigerings-auraer"
+        if not spec.selfheal:
+            out["note_selfheal"] = "selfheal_timing kræver spec-config med selvheal-spender"
+    elif spec.role == "healer":
+        out.update(_heal_metrics(rd))
+    return out
+
+
 ALL_LENSES = ("targets", "movement", "rotation", "survival", "sustain",
-              "context")
+              "context", "role")
 
 
 def run_lenses(cache_root: Path, log_stem: str, lenses=None, run_ids=None,
@@ -717,8 +882,13 @@ def run_lenses(cache_root: Path, log_stem: str, lenses=None, run_ids=None,
                 for k, v in rotation.items()}
         if "survival" in lenses:
             res["survival"] = lens_survival(rd, spec)
-        if "sustain" in lenses:
+        if "sustain" in lenses and spec.role == "dps":
             res["sustain"] = lens_sustain(rd, spec)
+        elif "sustain" in lenses:
+            res["sustain"] = {"unavailable": "phase_share er en dps-metrik "
+                              f"(målt rolle: {spec.role}) — se role.heal_share"}
+        if "role" in lenses:
+            res["role"] = lens_role(rd, spec)
         if "context" in lenses:
             errors = []
             if blind_events:
