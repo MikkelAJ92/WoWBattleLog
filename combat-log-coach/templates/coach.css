@@ -1,0 +1,191 @@
+/* Combat Log Coach — designretning: "telemetri & rådgivning"
+   ---------------------------------------------------------------------------
+   Lægger sig oven på dashboard.css, som ejer den CVD-sikre Okabe-Ito-palette
+   til data. Denne fil ejer dokumentets stemme.
+
+   Emnet er tastetryk i rækkefølge, ikke tal. Derfor er KEYCAPPEN dokumentets
+   atomare enhed og gennemgående strukturelement — den er også projektets
+   stabile identitet, fordi finger-rollerne overlever et spec-skift, mens
+   spell-navnene ikke gør.
+
+   Display: Bahnschrift — DIN-efterkommer, følger med Windows, teknisk og
+   kondenseret. Data og taster: Consolas. Brødtekst: Segoe UI Variable.
+
+   Proveniens er MATERIALE, ikke farve: målt = fast kant, modelleret =
+   stiplet, eksternt = prikket. Coachingen skifter flade, fordi dokumentet
+   skifter stemme når det holder op med at måle og begynder at råde.
+   --------------------------------------------------------------------------- */
+
+:root {
+  --f-display: Bahnschrift, "DIN Alternate", "Franklin Gothic Medium", system-ui, sans-serif;
+  --f-body: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --f-mono: Consolas, "Cascadia Mono", ui-monospace, monospace;
+  --ink: #0b0f14;
+  --sur: #131a22;
+  --sur2: #1a232d;
+  --line: #26313d;
+  --fg: #e3e9ef;
+  --dim: #8b98a5;
+  --coach: #e69f00;
+}
+
+html { background: var(--ink); }
+body {
+  max-width: 940px; margin: 0 auto; padding: 0 1.25rem 5rem;
+  background: var(--ink); color: var(--fg);
+  font-family: var(--f-body); font-size: 15px; line-height: 1.6;
+}
+main { padding-top: 1.5rem; }
+section { margin-bottom: 3.5rem; scroll-margin-top: 4.5rem; }
+p { max-width: 70ch; }
+
+/* Typografi ---------------------------------------------------------------- */
+h1, h2, h3, h4 {
+  font-family: var(--f-display); font-weight: 600; line-height: 1.15;
+  letter-spacing: .01em; margin: 0 0 .5rem;
+}
+h1 { font-size: clamp(2rem, 5vw, 3rem); }
+h2 { font-size: 1.55rem; text-transform: uppercase; letter-spacing: .06em; }
+h3 { font-size: 1.05rem; }
+h4 { font-size: .92rem; }
+.eyebrow {
+  font-family: var(--f-display); text-transform: uppercase;
+  letter-spacing: .22em; font-size: .7rem; color: var(--dim); margin: 0 0 .6rem;
+}
+.clc-lede { font-size: 1.05rem; max-width: 62ch; margin: 0 0 1.5rem; }
+.clc-dim, .clc-hint { color: var(--dim); }
+.clc-hint { font-size: .8rem; margin: .5rem 0 0; max-width: 70ch; }
+
+/* Keycap — signaturen ------------------------------------------------------ */
+.kc {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 2.2em; height: 2.2em; padding: 0 .5em;
+  font-family: var(--f-mono); font-size: .88em; font-weight: 600;
+  color: var(--fg); border-radius: 6px;
+  background: linear-gradient(180deg, #26323f, #171f29);
+  border: 1px solid #33414f; border-bottom-width: 3px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .08);
+}
+.kc--bad {
+  color: #fff; background: linear-gradient(180deg, #e26a10, #a84600);
+  border-color: #7e3600;
+}
+.kc--sm { min-width: 1.7em; height: 1.7em; font-size: .75em; border-bottom-width: 2px; }
+.ribbon { display: flex; flex-wrap: wrap; gap: .35rem; align-items: center; }
+.ribbon--hero { gap: .45rem; margin: .4rem 0 1.2rem; }
+.arrow { color: var(--dim); font-family: var(--f-mono); }
+
+/* Proveniens som materiale ------------------------------------------------- */
+.clc-badge {
+  font-family: var(--f-display); text-transform: uppercase; letter-spacing: .1em;
+  font-size: .62rem; padding: .15em .5em; border-radius: 3px;
+  vertical-align: .15em; margin-left: .4em; color: var(--dim);
+}
+.clc-badge--measured { border: 1px solid var(--line); background: var(--sur2); }
+.clc-badge--modeled { border: 1px dashed var(--line); }
+.clc-badge--external { border: 1px dotted var(--line); }
+[data-claim="external"] { border-bottom: 1px dotted var(--dim); }
+.clc-modeled-stroke { stroke-dasharray: 6 4; }
+
+/* Flader -------------------------------------------------------------------- */
+.clc-card, .clc-panel, .clc-finding {
+  background: var(--sur); border: 1px solid var(--line);
+  border-radius: 10px; padding: 1.1rem;
+}
+.clc-finding { margin-bottom: .9rem; }
+.clc-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: .85rem; }
+.clc-grid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: .85rem; align-items: start; }
+.clc-stat { font-family: var(--f-mono); font-size: 1.7rem; margin: .25rem 0; letter-spacing: -.02em; }
+.clc-stat span { font-size: .78rem; color: var(--dim); font-family: var(--f-body); }
+.clc-kv { display: grid; grid-template-columns: 1fr auto; gap: .2rem .6rem; margin: 0; }
+.clc-kv dt { color: var(--dim); font-size: .82rem; }
+.clc-kv dd { margin: 0; font-family: var(--f-mono); font-size: .82rem; }
+
+/* Coachingens stemme -------------------------------------------------------- */
+.clc-coach {
+  background: linear-gradient(180deg, rgba(230, 159, 0, .07), transparent 60%), var(--sur);
+  border: 1px solid var(--line); border-left: 3px solid var(--coach);
+  border-radius: 10px; padding: 1.1rem 1.25rem; margin-bottom: .9rem;
+}
+.clc-coach h3 { color: var(--coach); }
+.clc-coach p, .clc-coach li { font-size: .97rem; }
+.clc-rule { font-family: var(--f-display); font-size: 1.25rem; line-height: 1.35; margin: .6rem 0 .8rem; }
+.clc-key { border-left: 2px solid var(--clc-error); padding-left: .9rem; }
+
+/* Navigation ---------------------------------------------------------------- */
+.clc-nav {
+  position: sticky; top: 0; z-index: 20; display: flex; gap: .1rem; flex-wrap: wrap;
+  padding: .6rem 0; background: color-mix(in srgb, var(--ink) 92%, transparent);
+  backdrop-filter: blur(8px); border-bottom: 1px solid var(--line);
+}
+.clc-nav a {
+  font-family: var(--f-display); text-transform: uppercase; letter-spacing: .1em;
+  font-size: .7rem; color: var(--dim); text-decoration: none;
+  padding: .35rem .6rem; border-radius: 4px;
+}
+.clc-nav a:hover { color: var(--fg); }
+.clc-nav a[aria-current="true"] { color: var(--ink); background: var(--clc-actual); }
+
+/* Kontroller ---------------------------------------------------------------- */
+.clc-toolbar { display: flex; gap: .4rem; flex-wrap: wrap; margin-bottom: .9rem; }
+.clc-toolbar button, .clc-toggle {
+  font-family: var(--f-display); letter-spacing: .04em; background: var(--sur2);
+  color: var(--dim); border: 1px solid var(--line); border-radius: 6px;
+  padding: .4rem .8rem; cursor: pointer; font-size: .82rem;
+}
+.clc-toolbar button[aria-pressed="true"] {
+  color: var(--ink); background: var(--clc-actual); border-color: var(--clc-actual);
+}
+.clc-toggle { padding: .2rem .55rem; font-size: .75rem; }
+.clc-roletabs { display: flex; gap: .2rem; margin: .8rem 0 .3rem; border-bottom: 1px solid var(--line); }
+.clc-roletabs button {
+  font-family: var(--f-display); text-transform: uppercase; letter-spacing: .1em;
+  background: none; color: var(--dim); border: none; border-bottom: 2px solid transparent;
+  padding: .5rem .8rem; cursor: pointer; font-size: .75rem; margin-bottom: -1px;
+}
+.clc-roletabs button[aria-selected="true"] { color: var(--fg); border-bottom-color: var(--clc-actual); }
+.clc-strips { display: flex; gap: 3px; flex-wrap: wrap; margin-bottom: 1rem; }
+.clc-strip {
+  height: 44px; border: 1px solid var(--line); border-radius: 4px; cursor: pointer;
+  min-width: 15px; display: flex; align-items: flex-end; justify-content: center;
+  font-family: var(--f-mono); font-size: .62rem; color: var(--dim); padding-bottom: 3px;
+}
+.clc-strip[aria-pressed="true"] { outline: 2px solid var(--clc-actual); outline-offset: 1px; }
+.clc-member { cursor: pointer; }
+.clc-member[aria-pressed="true"] { outline: 2px solid var(--clc-actual); }
+.clc-me { border-color: var(--clc-actual); }
+.clc-mbar { height: 5px; background: var(--ink); border-radius: 3px; overflow: hidden; margin: .35rem 0 .55rem; }
+.clc-mbar span { display: block; height: 100%; }
+
+/* Tabeller og grafer -------------------------------------------------------- */
+.clc-table { width: 100%; border-collapse: collapse; font-size: .85rem; }
+.clc-table th {
+  text-align: left; font-family: var(--f-display); text-transform: uppercase;
+  letter-spacing: .08em; font-size: .68rem; color: var(--dim);
+  border-bottom: 1px solid var(--line); padding: .45rem .4rem;
+}
+.clc-table td { padding: .45rem .4rem; border-bottom: 1px solid var(--line); }
+.clc-seq { font-family: var(--f-mono); }
+.clc-bad { color: var(--clc-error); }
+.clc-chart { overflow-x: auto; }
+.clc-axis-label { fill: var(--dim); font-size: 12px; font-family: var(--f-body); }
+.clc-legend { display: flex; gap: .9rem; flex-wrap: wrap; font-size: .75rem; color: var(--dim); margin-top: .5rem; }
+.clc-legend i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: .35rem; }
+.clc-compare { display: grid; grid-template-columns: 1fr 1fr; gap: .85rem; }
+.clc-jump {
+  display: inline-block; margin-right: 1.2rem; font-size: .82rem;
+  color: var(--clc-actual); text-decoration: none;
+  font-family: var(--f-display); letter-spacing: .03em;
+}
+.clc-jump:hover { text-decoration: underline; }
+
+:focus-visible { outline: 2px solid var(--clc-actual); outline-offset: 2px; }
+
+@media (max-width: 820px) {
+  .clc-grid, .clc-compare { grid-template-columns: 1fr; }
+  /* Brede tabeller scroller i sig selv — siden må aldrig scrolle vandret. */
+  .clc-table { display: block; overflow-x: auto; white-space: nowrap; }
+}
+@media (prefers-reduced-motion: reduce) {
+  * { animation: none !important; transition: none !important; }
+}
